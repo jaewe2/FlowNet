@@ -11,23 +11,15 @@ public class SensorStuff {
     protected int[] packetPriority;  // vᵢ:  priority/weight of packets from DGᵢ
 
     // ── per-node energy ───────────────────────────────────────────────────────
-    // Eᵢ: how many packets can pass through node i total.
-    // Each packet that passes through node i costs exactly 1 unit of Eᵢ
-    // (uniform cost model, MWF-U — cost is the same for all edges).
     protected int[] nodeEnergy;
 
     // ── CFN matrices ──────────────────────────────────────────────────────────
     private int     cfnNodes;
-    private int[][] cap;   // capacity matrix of the BFN
-    private int[][] flow;  // current flow matrix of the BFN
+    private int[][] cap;
+    private int[][] flow;
     private Set<Integer> dgCFNIds = new HashSet<>();
 
     // ── CFN node index helpers ────────────────────────────────────────────────
-    // Each BSN node i is split into:
-    //   in-node  i' = 2i+1
-    //   out-node i" = 2i+2
-    //   super source s = 0
-    //   super sink   t = 2n+1
     private int inNode(int i)  { return 2*i + 1; }
     private int outNode(int i) { return 2*i + 2; }
     private int superSink()    { return 2*nodeLoc.length + 1; }
@@ -103,9 +95,6 @@ public class SensorStuff {
                               : r.nextInt(max - min + 1) + min;
     }
 
-    /** Assign a random energy budget Eᵢ to each node.
-     *  Each packet that passes through node i costs exactly 1 unit of Eᵢ
-     *  (uniform cost model, MWF-U). */
     public void randomNodeEnergies(int minE, int maxE) {
         Random rand = new Random();
         for (int i = 0; i < nodeEnergy.length; i++)
@@ -114,19 +103,43 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  BFN CONSTRUCTION  (Section VI of paper, uniform cost = 1 per packet)
+    //  IMPROVED: CLUSTERED + SCATTERED NODE PLACEMENT
     //
-    //  Node layout:
-    //    0      = super source s
-    //    2i+1   = in-node  i'  for BSN node i
-    //    2i+2   = out-node i"  for BSN node i
-    //    2n+1   = super sink t
-    //
-    //  Edges:
-    //    s  -> i'  : capacity di         (DG sending capacity)
-    //    i' -> i"  : capacity Eᵢ         (node energy budget)
-    //    u" -> v'  : capacity INF        (uniform cost = 1, BSN edge)
-    //    j" -> t   : capacity mj         (raw storage units)
+    //  Randomly picks 1–3 cluster centres per trial. 70% of nodes are placed
+    //  near a cluster (Gaussian spread), 30% are fully random outliers.
+    //  This produces varied topologies: some trials dense/clustered, others
+    //  sparse/scattered — so GOA vs Density GOA see genuinely different graphs.
+    // =========================================================================
+
+    public void randomNodes(int w, int l) {
+        Random r = new Random();
+
+        int numClusters = 1 + r.nextInt(3); // 1–3 clusters
+        double[] cx = new double[numClusters];
+        double[] cy = new double[numClusters];
+        for (int k = 0; k < numClusters; k++) {
+            cx[k] = r.nextDouble() * w;
+            cy[k] = r.nextDouble() * l;
+        }
+
+        double spread = Math.min(w, l) * 0.25;
+
+        for (int i = 0; i < nodeLoc.length; i++) {
+            if (r.nextDouble() < 0.3) {
+                // outlier: fully random position
+                nodeLoc[i][0] = r.nextDouble() * w;
+                nodeLoc[i][1] = r.nextDouble() * l;
+            } else {
+                // cluster member: Gaussian around a random centre
+                int k = r.nextInt(numClusters);
+                nodeLoc[i][0] = Math.max(0, Math.min(w, cx[k] + r.nextGaussian() * spread));
+                nodeLoc[i][1] = Math.max(0, Math.min(l, cy[k] + r.nextGaussian() * spread));
+            }
+        }
+    }
+
+    // =========================================================================
+    //  BFN CONSTRUCTION
     // =========================================================================
 
     public void buildCFN(List<Integer> dgNodes,
@@ -140,24 +153,20 @@ public class SensorStuff {
         flow     = new int[cfnNodes][cfnNodes];
         dgCFNIds.clear();
 
-        // s -> i' for each DG
         for (int dg : dgNodes) {
             cap[S][inNode(dg)] = packetsPerNode[dg];
             dgCFNIds.add(inNode(dg));
         }
 
-        // i' -> i" with per-node energy (uniform cost = 1 per packet)
         for (int i = 0; i < n; i++)
             cap[inNode(i)][outNode(i)] = nodeEnergy[i];
 
-        // u" -> v' for each BSN edge (uniform cost = 1, large capacity)
         int INF    = Integer.MAX_VALUE / 2;
         int[][] bsnAdj = (adjM != null) ? adjM.getAdjM() : null;
         for (int u = 0; u < n; u++)
             for (int v : getAdjNodes(bsnAdj != null ? bsnAdj : adjList, u))
                 cap[outNode(u)][inNode(v)] = INF;
 
-        // j" -> t with raw storage capacity
         for (int j = 0; j < storageNodes.size(); j++) {
             int st = storageNodes.get(j);
             cap[outNode(st)][T] = storageCapacity[j];
@@ -165,18 +174,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  BFS FOR SHORTEST FEASIBLE AUGMENTING PATH (FAP)
-    //
-    //  Finds the shortest path from super source s to super sink t that
-    //  passes through a specific DG source node (cfnSource).
-    //
-    //  Two-phase BFS:
-    //    Phase 1: BFS from s to cfnSource only.
-    //    Phase 2: BFS from cfnSource to t, blocked from entering other DG
-    //             in-nodes to ensure flow is attributed to the correct DG.
-    //
-    //  Size-aware sink check: sinkCap[u] >= szI ensures at least one
-    //  packet of size szI fits in the storage node before accepting the path.
+    //  BFS FOR SHORTEST FEASIBLE AUGMENTING PATH
     // =========================================================================
 
     private int[] bfsFAP(int cfnSource, int szI, int[] sinkCap) {
@@ -185,7 +183,6 @@ public class SensorStuff {
         boolean[] vis   = new boolean[cfnNodes];
         Arrays.fill(parent, -1);
 
-        // phase 1: BFS from s to cfnSource
         Queue<Integer> q = new LinkedList<>();
         q.add(S);
         vis[S]    = true;
@@ -205,7 +202,6 @@ public class SensorStuff {
         }
         if (!reached) return null;
 
-        // phase 2: BFS from cfnSource to t
         boolean[] vis2 = new boolean[cfnNodes];
         Queue<Integer> q2 = new LinkedList<>();
         q2.add(cfnSource);
@@ -218,7 +214,6 @@ public class SensorStuff {
                 if (cap[u][v] - flow[u][v] <= 0) continue;
                 if (v != T && v != cfnSource && dgCFNIds.contains(v)) continue;
                 if (v == T) {
-                    // size-aware sink check: at least one packet of size szI must fit
                     if (sinkCap[u] < szI) continue;
                     parent[v] = u;
                     return parent;
@@ -232,37 +227,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //
-    //  ALGORITHM 1: GOA (Greedy Optimal Algorithm) — Size-Aware Extension
-    //
-    //  Based on Algorithm 3 from Rivera & Tang (2024).
-    //  Extended to handle packets of different sizes (our new contribution).
-    //
-    //  Mathematical basis:
-    //    Objective: maximize Vf = Σᵢ (vᵢ × |fᵢ|)
-    //    Subject to:
-    //      |fᵢ| <= dᵢ              (DG sending capacity)
-    //      Σ flows through node i <= Eᵢ  (node energy)
-    //      Σ (szᵢ × packets stored at j) <= mⱼ  (storage capacity)
-    //
-    //  Steps:
-    //    1. Sort DGs by priority vᵢ in descending order.
-    //    2. For each DG sᵢ (highest priority first):
-    //       a. Find shortest FAP through sᵢ in residual graph.
-    //       b. Compute bottleneck Δ = min(path residual, dᵢ, floor(mⱼ/szᵢ)).
-    //       c. Augment flow by Δ along the path.
-    //       d. Update: dᵢ -= Δ, mⱼ -= Δ×szᵢ.
-    //       e. Repeat until no more FAPs exist through sᵢ.
-    //    3. Move to next DG. Stop when no FAPs remain anywhere.
-    //
-    //  Why it can fail with different sizes:
-    //    In the original paper all packets are unit-sized, so the exchange
-    //    argument holds: swapping flow from high-v to low-v always reduces
-    //    total weight. With different sizes, a large high-v packet may fill
-    //    storage that would otherwise hold many small lower-v packets with
-    //    greater combined weight (see counterexample: v0=10,sz0=3,d0=2 vs
-    //    v1=7,sz1=1,d1=6, cap=6 -> GOA gives 20, optimal gives 42).
-    //
+    //  ALGORITHM 1: GOA
     // =========================================================================
 
     public double goa(List<Integer> dgNodes,
@@ -272,17 +237,14 @@ public class SensorStuff {
         buildCFN(dgNodes, storageNodes, storageCapacity);
         int S = 0, T = superSink();
 
-        // remaining overflow packets per DG
         int[] remaining = new int[dgNodes.size()];
         for (int i = 0; i < dgNodes.size(); i++)
             remaining[i] = packetsPerNode[dgNodes.get(i)];
 
-        // sinkCap[outNode(j)] = raw storage units remaining at storage node j
         int[] sinkCap = new int[cfnNodes];
         for (int j = 0; j < storageNodes.size(); j++)
             sinkCap[outNode(storageNodes.get(j))] = storageCapacity[j];
 
-        // step 1: sort DGs by priority vᵢ descending
         Integer[] order = new Integer[dgNodes.size()];
         for (int i = 0; i < order.length; i++) order[i] = i;
         Arrays.sort(order, (a, b) ->
@@ -292,7 +254,6 @@ public class SensorStuff {
         List<int[]> goaFlowEdges = new ArrayList<>();
         int         maxIter      = cfnNodes * cfnNodes;
 
-        // step 2: greedily push flow from each DG in priority order
         for (int idx : order) {
             int dg     = dgNodes.get(idx);
             int cfnSrc = inNode(dg);
@@ -301,14 +262,11 @@ public class SensorStuff {
             int iters  = 0;
 
             while (remaining[idx] > 0 && iters++ < maxIter) {
-
-                // step 2a: find shortest FAP through this DG
                 int[] parent = bfsFAP(cfnSrc, szI, sinkCap);
                 if (parent == null) break;
 
                 int sinkOut = parent[T];
 
-                // step 2b: compute bottleneck Δ
                 int pathBottleneck = Integer.MAX_VALUE;
                 int cur = T, steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
@@ -318,20 +276,17 @@ public class SensorStuff {
                                              cap[prev][cur] - flow[prev][cur]);
                     cur = prev;
                 }
-                // Δ = min(path residual, remaining packets, floor(mⱼ/szᵢ))
                 int delta = Math.min(pathBottleneck,
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
 
-                // step 2c: augment flow along path
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
                     int prev = parent[cur];
                     if (prev == -1 || prev == cur) break;
                     flow[prev][cur] += delta;
-                    flow[cur][prev] -= delta;  // update residual graph
+                    flow[cur][prev] -= delta;
 
-                    // record BSN-level edge (skip s, t, internal i'->i" edges)
                     if (prev != S && prev != T && cur != S && cur != T) {
                         int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
                         if (bsnU != bsnV) {
@@ -346,18 +301,16 @@ public class SensorStuff {
                     cur = prev;
                 }
 
-                // step 2d: update capacities
-                remaining[idx]   -= delta;           // dᵢ -= Δ
-                sinkCap[sinkOut] -= delta * szI;     // mⱼ -= Δ × szᵢ
+                remaining[idx]   -= delta;
+                sinkCap[sinkOut] -= delta * szI;
                 cap[S][cfnSrc]   -= delta;
                 cap[sinkOut][T]  -= delta;
-                totalWeight      += (double) delta * vi;  // Vf += Δ × vᵢ
+                totalWeight      += (double) delta * vi;
 
                 System.out.printf(
                     "  Pushed %d packet(s) from DG %d (v=%d, sz=%d) -> sink %d%n",
                     delta, dg, vi, szI, sinkOut);
             }
-            // step 2e: move to next DG when no more FAPs exist through this one
         }
 
         System.out.printf("%nTotal Preserved Priority (GOA): %.1f%n", totalWeight);
@@ -369,40 +322,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //
-    //  ALGORITHM 2: DENSITY GOA — New Algorithm for Different Packet Sizes
-    //
-    //  Motivation:
-    //    GOA fails when sizes differ because it ignores the storage cost
-    //    of each packet. A high-priority large packet may consume storage
-    //    that would otherwise hold many small packets with greater combined
-    //    priority.
-    //
-    //  Mathematical basis:
-    //    Define value density: ρᵢ = vᵢ / szᵢ
-    //    This represents priority gained per storage unit consumed.
-    //    Analogy: the fractional knapsack greedy, adapted to network flow.
-    //
-    //    Objective: maximize Vf = Σᵢ (vᵢ × |fᵢ|)
-    //    Key insight: sorting by ρᵢ = vᵢ/szᵢ maximizes priority per unit
-    //    of storage consumed, which is the binding constraint when sizes differ.
-    //
-    //  Steps:
-    //    1. Compute density ρᵢ = vᵢ / szᵢ for each DG.
-    //    2. Sort DGs by ρᵢ in descending order (highest density first).
-    //    3. For each DG sᵢ (highest density first):
-    //       a. Find shortest FAP through sᵢ in residual graph.
-    //       b. Compute bottleneck Δ = min(path residual, dᵢ, floor(mⱼ/szᵢ)).
-    //       c. Augment flow by Δ along the path.
-    //       d. Update: dᵢ -= Δ, mⱼ -= Δ×szᵢ.
-    //       e. Repeat until no more FAPs exist through sᵢ.
-    //    4. Move to next DG. Stop when no FAPs remain anywhere.
-    //
-    //  Note: Density GOA is also not always optimal (second counterexample:
-    //    v0=9,sz0=3 vs v1=8,sz1=2, cap=5 -> Density gives 16, optimal=17).
-    //    However it outperforms GOA in cases where high-priority packets
-    //    have large sizes relative to their priority gain per storage unit.
-    //
+    //  ALGORITHM 2: DENSITY GOA
     // =========================================================================
 
     public double goaDensity(List<Integer> dgNodes,
@@ -420,7 +340,6 @@ public class SensorStuff {
         for (int j = 0; j < storageNodes.size(); j++)
             sinkCap[outNode(storageNodes.get(j))] = storageCapacity[j];
 
-        // step 1-2: compute and sort by density ρᵢ = vᵢ/szᵢ descending
         Integer[] order = new Integer[dgNodes.size()];
         for (int i = 0; i < order.length; i++) order[i] = i;
         Arrays.sort(order, (a, b) -> {
@@ -443,7 +362,6 @@ public class SensorStuff {
                     (double) packetPriority[dg] / packetSize[dg]);
         }
 
-        // step 3: greedily push flow from each DG in density order
         for (int idx : order) {
             int dg     = dgNodes.get(idx);
             int cfnSrc = inNode(dg);
@@ -452,14 +370,11 @@ public class SensorStuff {
             int iters  = 0;
 
             while (remaining[idx] > 0 && iters++ < maxIter) {
-
-                // step 3a: find shortest FAP through this DG
                 int[] parent = bfsFAP(cfnSrc, szI, sinkCap);
                 if (parent == null) break;
 
                 int sinkOut = parent[T];
 
-                // step 3b: compute bottleneck Δ
                 int pathBottleneck = Integer.MAX_VALUE;
                 int cur = T, steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
@@ -469,18 +384,16 @@ public class SensorStuff {
                                              cap[prev][cur] - flow[prev][cur]);
                     cur = prev;
                 }
-                // Δ = min(path residual, remaining packets, floor(mⱼ/szᵢ))
                 int delta = Math.min(pathBottleneck,
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
 
-                // step 3c: augment flow along path
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
                     int prev = parent[cur];
                     if (prev == -1 || prev == cur) break;
                     flow[prev][cur] += delta;
-                    flow[cur][prev] -= delta;  // update residual graph
+                    flow[cur][prev] -= delta;
 
                     if (prev != S && prev != T && cur != S && cur != T) {
                         int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
@@ -496,18 +409,16 @@ public class SensorStuff {
                     cur = prev;
                 }
 
-                // step 3d: update capacities
-                remaining[idx]   -= delta;           // dᵢ -= Δ
-                sinkCap[sinkOut] -= delta * szI;     // mⱼ -= Δ × szᵢ
+                remaining[idx]   -= delta;
+                sinkCap[sinkOut] -= delta * szI;
                 cap[S][cfnSrc]   -= delta;
                 cap[sinkOut][T]  -= delta;
-                totalWeight      += (double) delta * vi;  // Vf += Δ × vᵢ
+                totalWeight      += (double) delta * vi;
 
                 System.out.printf(
                     "  Pushed %d packet(s) from DG %d (v=%d, sz=%d, rho=%.2f) -> sink %d%n",
                     delta, dg, vi, szI, (double)vi/szI, sinkOut);
             }
-            // step 3e: move to next DG when no more FAPs exist through this one
         }
 
         System.out.printf("%nTotal Preserved Priority (Density GOA): %.1f%n",
@@ -520,50 +431,19 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //
-    //  ALGORITHM 3: APPROX GOA — 2-Approximation (Adapted from Algorithm 5)
-    //
-    //  Motivation:
-    //    Neither GOA nor Density GOA is always optimal with different sizes.
-    //    We adapt Algorithm 5 from Rivera & Tang (2024) — originally designed
-    //    for MWF-H — to our size-aware MWF-U setting by replacing cost cᵢ
-    //    with size szᵢ in the sorting criteria.
-    //
-    //  Mathematical basis:
-    //    Run two sub-routines and return the better result:
-    //      Sub-routine A: greedy by vᵢ  (same as GOA)
-    //      Sub-routine B: greedy by vᵢ/szᵢ (same as Density GOA)
-    //
-    //    Approximation guarantee (adapted from Theorem 5):
-    //      Let Sw = sources that send in sub-routine B before first failure sⱼ.
-    //      V'f = Σ(sᵢ∈Sw)(vᵢ×dᵢ)  and  vⱼ×dⱼ <= Vf (A sends highest v first)
-    //      Vopt <= V'f + vⱼ×dⱼ <= V'f + Vf
-    //      Since Vf = max(Vf, V'f):  Vf >= Vopt/2
-    //
-    //    Note: Splittable flows are used (unlike the all-or-nothing model in
-    //    the original Algorithm 5), making this more practical for MWF-U
-    //    where partial sends are naturally allowed.
-    //
-    //  Steps:
-    //    1. Run sub-routine A: greedy by vᵢ, splittable flows -> result VfA
-    //    2. Run sub-routine B: greedy by vᵢ/szᵢ, splittable flows -> result VfB
-    //    3. Return max(VfA, VfB)
-    //
+    //  ALGORITHM 3: APPROX GOA
     // =========================================================================
 
     public double goaApprox(List<Integer> dgNodes,
                             List<Integer> storageNodes,
                             int[]         storageCapacity) {
 
-        // step 1: sub-routine A (sort by vᵢ)
         System.out.println("\n-- Approx Sub-routine A: sort by v --");
         double vfA = runGreedy(dgNodes, storageNodes, storageCapacity, false);
 
-        // step 2: sub-routine B (sort by vᵢ/szᵢ)
         System.out.println("\n-- Approx Sub-routine B: sort by v/sz --");
         double vfB = runGreedy(dgNodes, storageNodes, storageCapacity, true);
 
-        // step 3: return max(VfA, VfB)
         double best = Math.max(vfA, vfB);
         System.out.printf("%nApprox (A) by v:         %.1f%n", vfA);
         System.out.printf("Approx (B) by v/sz:      %.1f%n", vfB);
@@ -571,13 +451,6 @@ public class SensorStuff {
 
         return best;
     }
-
-    // -------------------------------------------------------------------------
-    //  Shared greedy logic for both sub-routines of goaApprox.
-    //  Identical structure to GOA/Density GOA — only the sort key differs.
-    //  useDensity=false -> sort by vᵢ (sub-routine A)
-    //  useDensity=true  -> sort by vᵢ/szᵢ (sub-routine B)
-    // -------------------------------------------------------------------------
 
     private double runGreedy(List<Integer> dgNodes,
                              List<Integer> storageNodes,
@@ -666,7 +539,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  SILENT RUN — no console output, no graphs (used for scaling trials)
+    //  SILENT RUN
     // =========================================================================
 
     public double runSilent(List<Integer> dgNodes,
@@ -749,7 +622,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  SILENT RUN WITH FLOW EDGE COLLECTION (for visual run)
+    //  SILENT RUN WITH FLOW EDGE COLLECTION
     // =========================================================================
 
     public double runSilentCollect(List<Integer> dgNodes,
@@ -820,7 +693,6 @@ public class SensorStuff {
                     flow[prev][cur] += delta;
                     flow[cur][prev] -= delta;
 
-                    // collect BSN flow edges for visualization
                     if (prev != S && prev != T && cur != S && cur != T) {
                         int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
                         if (bsnU != bsnV) {
@@ -1008,14 +880,13 @@ public class SensorStuff {
         int visNodes = Math.max(2, kb.nextInt());
 
         SensorStuff visNet = new SensorStuff(visNodes, choice);
-        visNet.randomNodes(widthX, lenY);
+        visNet.randomNodes(widthX, lenY);   // now uses clustered placement
         visNet.createE(TR);
         visNet.randomNodeEnergies(minE, maxE);
         visNet.randomDataPackets(minPkt, maxPkt);
         visNet.randomPacketSizes(minSz, maxSz);
         visNet.randomPacketPriorities(minPri, maxPri);
 
-        // find components
         boolean[] visVisited = new boolean[visNodes];
         visNet.components = new ArrayList<>();
         for (int i = 0; i < visNodes; i++)
@@ -1024,7 +895,7 @@ public class SensorStuff {
                     visNet.adjM != null ? visNet.adjM.getAdjM()
                                        : visNet.adjList, i, visVisited));
 
-        // random DG/storage split
+        // IMPROVED: randomized DG/storage ratio instead of fixed 50/50
         List<Integer> visDG  = new ArrayList<>();
         List<Integer> visST  = new ArrayList<>();
         List<Integer> visAll = new ArrayList<>();
@@ -1032,12 +903,12 @@ public class SensorStuff {
         Collections.shuffle(visAll, rand);
         visDG.add(visAll.get(0));
         visST.add(visAll.get(1));
+        double visDgRatio = 0.2 + rand.nextDouble() * 0.5; // 20–70% DGs
         for (int i = 2; i < visNodes; i++) {
-            if (rand.nextBoolean()) visDG.add(visAll.get(i));
-            else                   visST.add(visAll.get(i));
+            if (rand.nextDouble() < visDgRatio) visDG.add(visAll.get(i));
+            else                               visST.add(visAll.get(i));
         }
 
-        // storage capacity from user input range
         int visTotalCap = 0;
         int[] visCap    = new int[visST.size()];
         for (int j = 0; j < visCap.length; j++) {
@@ -1046,7 +917,9 @@ public class SensorStuff {
             visTotalCap += visCap[j];
         }
 
-        // print setup
+        System.out.printf("  Visual run DG ratio: %.0f%% (%d DGs, %d storage)%n",
+                          visDgRatio * 100, visDG.size(), visST.size());
+
         System.out.println("\n-- Visual Run DG Setup --");
         for (int dg : visDG)
             System.out.printf(
@@ -1060,7 +933,6 @@ public class SensorStuff {
                 visST.get(j), visCap[j],
                 visNet.nodeEnergy[visST.get(j)]);
 
-        // run algorithms silently then launch all 4 graphs
         List<int[]> goaEdges     = new ArrayList<>();
         List<int[]> densityEdges = new ArrayList<>();
         double visGOA     = visNet.runSilentCollect(visDG, visST, visCap,
@@ -1093,14 +965,18 @@ public class SensorStuff {
             for (int t = 1; t <= trials; t++) {
 
                 SensorStuff net = new SensorStuff(numNodes, choice);
-                net.randomNodes(widthX, lenY);
-                net.createE(TR);
+                net.randomNodes(widthX, lenY);   // clustered placement
+
+                // IMPROVED: per-trial TR jitter (75%–125% of base TR)
+                double trJitter = 0.75 + rand.nextDouble() * 0.5;
+                int trialTR = (int)(TR * trJitter);
+                net.createE(trialTR);
+
                 net.randomNodeEnergies(minE, maxE);
                 net.randomDataPackets(minPkt, maxPkt);
                 net.randomPacketSizes(minSz, maxSz);
                 net.randomPacketPriorities(minPri, maxPri);
 
-                // find components quietly
                 boolean[] visited = new boolean[numNodes];
                 net.components = new ArrayList<>();
                 for (int i = 0; i < numNodes; i++)
@@ -1109,7 +985,7 @@ public class SensorStuff {
                             net.adjM != null ? net.adjM.getAdjM()
                                              : net.adjList, i, visited));
 
-                // random DG/storage split
+                // IMPROVED: randomized DG/storage ratio per trial
                 List<Integer> dgNodes      = new ArrayList<>();
                 List<Integer> storageNodes = new ArrayList<>();
                 List<Integer> allNodes     = new ArrayList<>();
@@ -1117,18 +993,17 @@ public class SensorStuff {
                 Collections.shuffle(allNodes, rand);
                 dgNodes.add(allNodes.get(0));
                 storageNodes.add(allNodes.get(1));
+                double dgRatio = 0.2 + rand.nextDouble() * 0.5; // 20–70% DGs
                 for (int i = 2; i < numNodes; i++) {
-                    if (rand.nextBoolean()) dgNodes.add(allNodes.get(i));
-                    else                   storageNodes.add(allNodes.get(i));
+                    if (rand.nextDouble() < dgRatio) dgNodes.add(allNodes.get(i));
+                    else                             storageNodes.add(allNodes.get(i));
                 }
 
-                // storage capacity from user input range
                 int[] storageCap = new int[storageNodes.size()];
                 for (int j = 0; j < storageCap.length; j++)
                     storageCap[j] = (minCap == maxCap) ? minCap
                         : rand.nextInt(maxCap - minCap + 1) + minCap;
 
-                // silent run
                 double goaResult     = net.runSilent(dgNodes, storageNodes,
                                                      storageCap, false);
                 double densityResult = net.runSilent(dgNodes, storageNodes,
@@ -1136,8 +1011,9 @@ public class SensorStuff {
                 double approxResult  = Math.max(goaResult, densityResult);
 
                 System.out.printf(
-                    "  Trial %2d: GOA=%.1f  Density=%.1f  Approx=%.1f%n",
-                    t, goaResult, densityResult, approxResult);
+                    "  Trial %2d [TR=%d, DGs=%d, STs=%d]: GOA=%.1f  Density=%.1f  Approx=%.1f%n",
+                    t, trialTR, dgNodes.size(), storageNodes.size(),
+                    goaResult, densityResult, approxResult);
 
                 sumGOA     += goaResult;
                 sumDensity += densityResult;
@@ -1148,14 +1024,10 @@ public class SensorStuff {
                 else                                tied++;
             }
 
-            // print averages
             System.out.printf("%n-- Averages over %d trials --%n", trials);
-            System.out.printf("  GOA avg:              %.2f%n",
-                              sumGOA     / trials);
-            System.out.printf("  Density GOA avg:      %.2f%n",
-                              sumDensity / trials);
-            System.out.printf("  Approx GOA avg:       %.2f%n",
-                              sumApprox  / trials);
+            System.out.printf("  GOA avg:              %.2f%n", sumGOA     / trials);
+            System.out.printf("  Density GOA avg:      %.2f%n", sumDensity / trials);
+            System.out.printf("  Approx GOA avg:       %.2f%n", sumApprox  / trials);
             System.out.printf("  Density beat GOA:     %d/%d trials%n",
                               densityBeatGOA, trials);
             System.out.printf("  GOA beat Density:     %d/%d trials%n",
@@ -1168,20 +1040,12 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  ORIGINAL METHODS
+    //  ORIGINAL METHODS (unchanged)
     // =========================================================================
 
     public static double distanceNodes(double[] n1, double[] n2) {
         double dx = n2[0]-n1[0], dy = n2[1]-n1[1];
         return Math.sqrt(dy*dy + dx*dx);
-    }
-
-    public void randomNodes(int w, int l) {
-        Random r = new Random();
-        for (int i = 0; i < nodeLoc.length; i++) {
-            nodeLoc[i][0] = r.nextDouble() * w;
-            nodeLoc[i][1] = r.nextDouble() * l;
-        }
     }
 
     public void createE(int TR) {
