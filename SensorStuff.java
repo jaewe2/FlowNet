@@ -139,6 +139,56 @@ public class SensorStuff {
     }
 
     // =========================================================================
+    //  PRE-FLIGHT FEASIBILITY CHECK
+    //
+    //  Before running MWF, check whether all DG packets can be offloaded.
+    //  If total storage capacity >= total packets AND total node energy across
+    //  all nodes >= total packets, there is no bottleneck — MWF is unnecessary.
+    //
+    //  As Prof. Tang describes: "if all the flows can be offloaded, there's no
+    //  point to do this because all the packets can be offloaded, there's enough
+    //  energy and storage, no worries."
+    //
+    //  Returns true if MWF is needed (bottleneck exists), false if not.
+    // =========================================================================
+
+    public boolean needsMWF(List<Integer> dgNodes,
+                            List<Integer> storageNodes,
+                            int[]         storageCapacity) {
+
+        int totalPackets = 0;
+        for (int dg : dgNodes)
+            totalPackets += packetsPerNode[dg];
+
+        // check storage bottleneck
+        int totalStorage = 0;
+        for (int cap : storageCapacity)
+            totalStorage += cap;
+
+        // check energy bottleneck: sum of all node energy budgets
+        int totalEnergy = 0;
+        for (int e : nodeEnergy)
+            totalEnergy += e;
+
+        boolean storageSufficient = totalStorage >= totalPackets;
+        boolean energySufficient  = totalEnergy  >= totalPackets;
+
+        System.out.printf("%n-- Feasibility Check --%n");
+        System.out.printf("  Total DG packets:    %d%n", totalPackets);
+        System.out.printf("  Total storage cap:   %d  (%s)%n",
+                          totalStorage, storageSufficient ? "sufficient" : "BOTTLENECK");
+        System.out.printf("  Total node energy:   %d  (%s)%n",
+                          totalEnergy, energySufficient ? "sufficient" : "BOTTLENECK");
+
+        if (storageSufficient && energySufficient) {
+            System.out.println("  >> All packets can be offloaded — MWF not needed.");
+            return false;
+        }
+        System.out.println("  >> Bottleneck detected — running MWF.");
+        return true;
+    }
+
+    // =========================================================================
     //  BFN CONSTRUCTION
     // =========================================================================
 
@@ -227,12 +277,43 @@ public class SensorStuff {
     }
 
     // =========================================================================
+    //  RELAY NODE SUMMARY PRINTER
+    //
+    //  After augmentation, prints which BSN nodes acted purely as relays
+    //  (i.e., carried flow but are neither a DG source nor a storage sink).
+    //  Also shows how many packets they forwarded and energy consumed.
+    //  Matches Prof. Tang's point: "both DG and storage nodes can be relay
+    //  nodes" — any node in the middle of a flow path is relaying.
+    // =========================================================================
+
+    private void printRelayInfo(Map<Integer, Integer> relayCount,
+                                Set<Integer>          dgSet,
+                                Set<Integer>          storageSet) {
+        System.out.println("\n-- Relay Node Activity --");
+        boolean anyRelay = false;
+        for (Map.Entry<Integer, Integer> e : relayCount.entrySet()) {
+            int node   = e.getKey();
+            int pkts   = e.getValue();
+            String role = dgSet.contains(node)      ? " [DG-relay]"
+                        : storageSet.contains(node) ? " [Storage-relay]"
+                        : " [Relay]";
+            System.out.printf("  Node %d%s: forwarded %d packet(s), energy used: %d/%d%n",
+                              node, role, pkts, pkts, nodeEnergy[node]);
+            anyRelay = true;
+        }
+        if (!anyRelay) System.out.println("  No relay nodes used.");
+    }
+
+    // =========================================================================
     //  ALGORITHM 1: GOA
     // =========================================================================
 
     public double goa(List<Integer> dgNodes,
                       List<Integer> storageNodes,
                       int[]         storageCapacity) {
+
+        // pre-flight check: skip MWF if no bottleneck
+        if (!needsMWF(dgNodes, storageNodes, storageCapacity)) return 0.0;
 
         buildCFN(dgNodes, storageNodes, storageCapacity);
         int S = 0, T = superSink();
@@ -252,7 +333,11 @@ public class SensorStuff {
 
         double      totalWeight  = 0.0;
         List<int[]> goaFlowEdges = new ArrayList<>();
+        Map<Integer, Integer> relayCount = new LinkedHashMap<>(); // relay tracking
         int         maxIter      = cfnNodes * cfnNodes;
+
+        Set<Integer> dgSet      = new HashSet<>(dgNodes);
+        Set<Integer> storageSet = new HashSet<>(storageNodes);
 
         for (int idx : order) {
             int dg     = dgNodes.get(idx);
@@ -279,6 +364,24 @@ public class SensorStuff {
                 int delta = Math.min(pathBottleneck,
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
+
+                // collect relay nodes: BSN nodes in the middle of this path
+                List<Integer> pathBsnNodes = new ArrayList<>();
+                cur = T; steps = 0;
+                while (cur != S && steps++ < cfnNodes) {
+                    int prev = parent[cur];
+                    if (prev == -1 || prev == cur) break;
+                    if (prev != S && prev != T && cur != S && cur != T) {
+                        int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
+                        if (bsnU != bsnV && !pathBsnNodes.contains(bsnU)
+                                         && bsnU != dg
+                                         && !storageSet.contains(bsnU))
+                            pathBsnNodes.add(bsnU);
+                    }
+                    cur = prev;
+                }
+                for (int relay : pathBsnNodes)
+                    relayCount.merge(relay, delta, Integer::sum);
 
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
@@ -314,6 +417,7 @@ public class SensorStuff {
         }
 
         System.out.printf("%nTotal Preserved Priority (GOA): %.1f%n", totalWeight);
+        printRelayInfo(relayCount, dgSet, storageSet);
         launchGraph(dgNodes, storageNodes, goaFlowEdges, storageCapacity,
                     "GOA - Sort by Priority (v)");
         launchBFN(dgNodes, storageNodes, storageCapacity, goaFlowEdges,
@@ -328,6 +432,8 @@ public class SensorStuff {
     public double goaDensity(List<Integer> dgNodes,
                              List<Integer> storageNodes,
                              int[]         storageCapacity) {
+
+        if (!needsMWF(dgNodes, storageNodes, storageCapacity)) return 0.0;
 
         buildCFN(dgNodes, storageNodes, storageCapacity);
         int S = 0, T = superSink();
@@ -352,7 +458,11 @@ public class SensorStuff {
 
         double      totalWeight  = 0.0;
         List<int[]> goaFlowEdges = new ArrayList<>();
+        Map<Integer, Integer> relayCount = new LinkedHashMap<>();
         int         maxIter      = cfnNodes * cfnNodes;
+
+        Set<Integer> dgSet      = new HashSet<>(dgNodes);
+        Set<Integer> storageSet = new HashSet<>(storageNodes);
 
         System.out.println("\n-- Density Order (rho = v/sz) --");
         for (int idx : order) {
@@ -388,6 +498,24 @@ public class SensorStuff {
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
 
+                // relay tracking
+                List<Integer> pathBsnNodes = new ArrayList<>();
+                cur = T; steps = 0;
+                while (cur != S && steps++ < cfnNodes) {
+                    int prev = parent[cur];
+                    if (prev == -1 || prev == cur) break;
+                    if (prev != S && prev != T && cur != S && cur != T) {
+                        int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
+                        if (bsnU != bsnV && !pathBsnNodes.contains(bsnU)
+                                         && bsnU != dg
+                                         && !storageSet.contains(bsnU))
+                            pathBsnNodes.add(bsnU);
+                    }
+                    cur = prev;
+                }
+                for (int relay : pathBsnNodes)
+                    relayCount.merge(relay, delta, Integer::sum);
+
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
                     int prev = parent[cur];
@@ -421,8 +549,8 @@ public class SensorStuff {
             }
         }
 
-        System.out.printf("%nTotal Preserved Priority (Density GOA): %.1f%n",
-                          totalWeight);
+        System.out.printf("%nTotal Preserved Priority (Density GOA): %.1f%n", totalWeight);
+        printRelayInfo(relayCount, dgSet, storageSet);
         launchGraph(dgNodes, storageNodes, goaFlowEdges, storageCapacity,
                     "Density GOA - Sort by Density (v/sz)");
         launchBFN(dgNodes, storageNodes, storageCapacity, goaFlowEdges,
@@ -933,23 +1061,14 @@ public class SensorStuff {
                 visST.get(j), visCap[j],
                 visNet.nodeEnergy[visST.get(j)]);
 
-        List<int[]> goaEdges     = new ArrayList<>();
-        List<int[]> densityEdges = new ArrayList<>();
-        double visGOA     = visNet.runSilentCollect(visDG, visST, visCap,
-                                                    false, goaEdges);
-        double visDensity = visNet.runSilentCollect(visDG, visST, visCap,
-                                                    true,  densityEdges);
-        System.out.printf("  GOA total priority:         %.1f%n", visGOA);
+        // use goa() and goaDensity() directly so feasibility check,
+        // relay tracking, and console output all appear in the visual run
+        System.out.println("\n-- Running GOA (visual) --");
+        double visGOA     = visNet.goa(visDG, visST, visCap);
+        System.out.println("\n-- Running Density GOA (visual) --");
+        double visDensity = visNet.goaDensity(visDG, visST, visCap);
+        System.out.printf("%n  GOA total priority:         %.1f%n", visGOA);
         System.out.printf("  Density GOA total priority: %.1f%n", visDensity);
-
-        visNet.launchGraph(visDG, visST, goaEdges,     visCap,
-                           "GOA - Sort by Priority (v)");
-        visNet.launchBFN(visDG,   visST, visCap,
-                         goaEdges, "GOA - Sort by Priority (v)");
-        visNet.launchGraph(visDG, visST, densityEdges, visCap,
-                           "Density GOA - Sort by Density (v/sz)");
-        visNet.launchBFN(visDG,   visST, visCap,
-                         densityEdges, "Density GOA - Sort by Density (v/sz)");
 
         System.out.println("\n-- Graphs launched. Starting scaling runs... --\n");
 
