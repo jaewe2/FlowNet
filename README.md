@@ -166,6 +166,18 @@ Since Vf = max(Vf, V'f):   Vf >= Vopt / 2
 
 ---
 
+## Randomized Trial Design
+
+Each trial independently varies three factors to ensure GOA and Density GOA are tested across genuinely diverse network conditions rather than structurally similar graphs:
+
+**Node placement** — nodes are distributed using a mix of Gaussian clustering (1–3 random cluster centres) and uniform scatter (30% outliers). This produces trials with tight dense clusters, sparse scatter, or a mix of both — directly changing which constraint (energy vs. storage) dominates.
+
+**DG/storage split** — the ratio of data generator nodes to storage nodes is drawn randomly between 20% and 70% per trial, rather than a fixed 50/50 coin flip. Some trials are DG-heavy (storage is the bottleneck), others are storage-heavy (routing and energy matter more).
+
+**Transmission range jitter** — each trial applies a ±25% random multiplier to the base TR, varying graph density from sparse (few routing paths) to dense (many alternative paths). The actual TR used is printed per trial line in the scaling output.
+
+---
+
 ## Files
 
 | File | Description |
@@ -221,7 +233,7 @@ Java Swing is part of the standard JDK and requires **no additional installation
 
 ---
 
-
+## Compile & Run
 
 ```bash
 # Compile all files
@@ -278,8 +290,8 @@ Each visual run opens **4 graph windows:**
 
 ```
 ==== Network Size: 50 nodes, 20 trials ====
-  Trial  1: GOA=210.0  Density=245.0  Approx=245.0
-  Trial  2: GOA=198.0  Density=198.0  Approx=198.0
+  Trial  1 [TR=84, DGs=18, STs=32]: GOA=210.0  Density=245.0  Approx=245.0
+  Trial  2 [TR=71, DGs=29, STs=21]: GOA=198.0  Density=198.0  Approx=198.0
   ...
 -- Averages over 20 trials --
   GOA avg:              205.30
