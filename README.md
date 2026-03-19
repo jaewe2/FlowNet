@@ -1,6 +1,6 @@
 # Priority-Based Data Preservation with Variable Packet Sizes
 ### A Size-Aware Maximum Weighted Flow Approach
-**Author:** Jason Roe  
+**Author:** Jason Roe 
 **Advisor:** Professor Bin Tang, California State University Dominguez Hills  
 **Course:** CSC 590 — M.S. Project
 
@@ -286,8 +286,38 @@ Each visual run opens **4 graph windows:**
 
 ---
 
-## Scaling Output Format
+## Output Format
 
+### Visual Run
+The visual run uses `goa()` and `goaDensity()` directly, so the full output appears for each algorithm:
+
+```
+-- Feasibility Check --
+  Total DG packets:    17
+  Total storage cap:   54  (sufficient)
+  Total node energy:   39  (BOTTLENECK)
+  >> Bottleneck detected — running MWF.
+  Pushed 3 packet(s) from DG 9 (v=5, sz=10) -> sink 12
+  Pushed 2 packet(s) from DG 7 (v=1, sz=2) -> sink 14
+  ...
+
+Total Preserved Priority (GOA): 14.0
+
+-- Relay Node Activity --
+  Node 3 [Relay]: forwarded 3 packet(s), energy used: 3/6
+  Node 5 [DG-relay]: forwarded 2 packet(s), energy used: 2/4
+```
+
+If no bottleneck exists, the algorithm is skipped entirely:
+```
+-- Feasibility Check --
+  Total DG packets:    10
+  Total storage cap:   80  (sufficient)
+  Total node energy:   120  (sufficient)
+  >> All packets can be offloaded — MWF not needed.
+```
+
+### Scaling Runs
 ```
 ==== Network Size: 50 nodes, 20 trials ====
   Trial  1 [TR=84, DGs=18, STs=32]: GOA=210.0  Density=245.0  Approx=245.0
