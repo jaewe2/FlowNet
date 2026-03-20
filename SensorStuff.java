@@ -6,25 +6,19 @@ public class SensorStuff {
     private static final double Eamp       = 0.0000001;
     private static final int    PACKET_SIZE = 3200;
 
-    // ── per-source arrays ─────────────────────────────────────────────────────
-    protected int[] packetSize;      // szᵢ: storage units one packet from DGᵢ occupies
-    protected int[] packetPriority;  // vᵢ:  priority/weight of packets from DGᵢ
-
-    // ── per-node energy ───────────────────────────────────────────────────────
+    protected int[] packetSize;
+    protected int[] packetPriority;
     protected int[] nodeEnergy;
 
-    // ── CFN matrices ──────────────────────────────────────────────────────────
     private int     cfnNodes;
     private int[][] cap;
     private int[][] flow;
     private Set<Integer> dgCFNIds = new HashSet<>();
 
-    // ── CFN node index helpers ────────────────────────────────────────────────
     private int inNode(int i)  { return 2*i + 1; }
     private int outNode(int i) { return 2*i + 2; }
     private int superSink()    { return 2*nodeLoc.length + 1; }
 
-    // ── existing fields ───────────────────────────────────────────────────────
     protected class AdjacentMatrix {
         protected int[][] adjM;
         protected int nodes;
@@ -43,19 +37,18 @@ public class SensorStuff {
         public int compareTo(Edge o)          { return Double.compare(edgeW, o.edgeW); }
     }
 
-    protected AdjacentMatrix             adjM;
+    protected AdjacentMatrix                 adjM;
     protected ArrayList<LinkedList<Integer>> adjList;
-    protected double[][]                 nodeLoc;
-    protected List<List<Integer>>        components;
-    protected int[]                      packetsPerNode;
-    protected List<Edge>                 mstEdges   = new ArrayList<>();
-    protected List<Integer>              rendPoints = new ArrayList<>();
-    protected double                     totalEDijkstra = 0.0;
-    protected double                     totalEPrim     = 0.0;
-    protected List<Double>               dijkstraPerComponentE = new ArrayList<>();
-    protected List<Double>               primPerComponentE     = new ArrayList<>();
+    protected double[][]                     nodeLoc;
+    protected List<List<Integer>>            components;
+    protected int[]                          packetsPerNode;
+    protected List<Edge>                     mstEdges   = new ArrayList<>();
+    protected List<Integer>                  rendPoints = new ArrayList<>();
+    protected double                         totalEDijkstra = 0.0;
+    protected double                         totalEPrim     = 0.0;
+    protected List<Double>                   dijkstraPerComponentE = new ArrayList<>();
+    protected List<Double>                   primPerComponentE     = new ArrayList<>();
 
-    // ── constructor ───────────────────────────────────────────────────────────
     public SensorStuff(int numNodes, int choice) {
         if (choice == 1) {
             adjM = new AdjacentMatrix(numNodes);
@@ -113,24 +106,19 @@ public class SensorStuff {
 
     public void randomNodes(int w, int l) {
         Random r = new Random();
-
-        int numClusters = 1 + r.nextInt(3); // 1–3 clusters
+        int numClusters = 1 + r.nextInt(3);
         double[] cx = new double[numClusters];
         double[] cy = new double[numClusters];
         for (int k = 0; k < numClusters; k++) {
             cx[k] = r.nextDouble() * w;
             cy[k] = r.nextDouble() * l;
         }
-
         double spread = Math.min(w, l) * 0.25;
-
         for (int i = 0; i < nodeLoc.length; i++) {
             if (r.nextDouble() < 0.3) {
-                // outlier: fully random position
                 nodeLoc[i][0] = r.nextDouble() * w;
                 nodeLoc[i][1] = r.nextDouble() * l;
             } else {
-                // cluster member: Gaussian around a random centre
                 int k = r.nextInt(numClusters);
                 nodeLoc[i][0] = Math.max(0, Math.min(w, cx[k] + r.nextGaussian() * spread));
                 nodeLoc[i][1] = Math.max(0, Math.min(l, cy[k] + r.nextGaussian() * spread));
@@ -139,57 +127,42 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  PRE-FLIGHT FEASIBILITY CHECK
+    // ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+    //  BSN-BASED FLOW NETWORK (BFN) — GRAPH TRANSFORMATION
     //
-    //  Before running MWF, check whether all DG packets can be offloaded.
-    //  If total storage capacity >= total packets AND total node energy across
-    //  all nodes >= total packets, there is no bottleneck — MWF is unnecessary.
+    //  WHAT IT DOES:
+    //    Converts the physical sensor network graph G(V,E) into a directed
+    //    flow network G'(V',E') so that standard max-flow algorithms can be
+    //    applied. This transformation is the foundation that all three
+    //    algorithms (GOA, Density GOA, Approx GOA) run on top of.
     //
-    //  As Prof. Tang describes: "if all the flows can be offloaded, there's no
-    //  point to do this because all the packets can be offloaded, there's enough
-    //  energy and storage, no worries."
+    //  WHY WE NEED IT:
+    //    In a raw sensor graph, energy constraints live on nodes — each node
+    //    has a budget of how many packets it can forward. Max-flow only
+    //    supports capacity constraints on edges, not nodes. The BFN solves
+    //    this by splitting each physical node i into two virtual nodes:
+    //      i'  (in-node)  — receives incoming flow
+    //      i"  (out-node) — sends outgoing flow
+    //    The directed edge i' → i" has capacity = Eᵢ (node energy budget).
+    //    Any packet passing through node i must traverse this internal edge,
+    //    so the energy constraint is enforced naturally by the flow.
     //
-    //  Returns true if MWF is needed (bottleneck exists), false if not.
-    // =========================================================================
-
-    public boolean needsMWF(List<Integer> dgNodes,
-                            List<Integer> storageNodes,
-                            int[]         storageCapacity) {
-
-        int totalPackets = 0;
-        for (int dg : dgNodes)
-            totalPackets += packetsPerNode[dg];
-
-        // check storage bottleneck
-        int totalStorage = 0;
-        for (int cap : storageCapacity)
-            totalStorage += cap;
-
-        // check energy bottleneck: sum of all node energy budgets
-        int totalEnergy = 0;
-        for (int e : nodeEnergy)
-            totalEnergy += e;
-
-        boolean storageSufficient = totalStorage >= totalPackets;
-        boolean energySufficient  = totalEnergy  >= totalPackets;
-
-        System.out.printf("%n-- Feasibility Check --%n");
-        System.out.printf("  Total DG packets:    %d%n", totalPackets);
-        System.out.printf("  Total storage cap:   %d  (%s)%n",
-                          totalStorage, storageSufficient ? "sufficient" : "BOTTLENECK");
-        System.out.printf("  Total node energy:   %d  (%s)%n",
-                          totalEnergy, energySufficient ? "sufficient" : "BOTTLENECK");
-
-        if (storageSufficient && energySufficient) {
-            System.out.println("  >> All packets can be offloaded — MWF not needed.");
-            return false;
-        }
-        System.out.println("  >> Bottleneck detected — running MWF.");
-        return true;
-    }
-
-    // =========================================================================
-    //  BFN CONSTRUCTION
+    //  NODE LAYOUT (CFN indices):
+    //    0        = super source s   — pushes flow out to all DG in-nodes
+    //    2i + 1   = in-node  i'      — receives packets arriving at node i
+    //    2i + 2   = out-node i"      — sends packets leaving node i
+    //    2n + 1   = super sink t     — collects flow from all storage out-nodes
+    //
+    //  EDGE CONSTRUCTION:
+    //    s  → i'  : capacity = dᵢ    — how many packets DG i can send
+    //    i' → i"  : capacity = Eᵢ    — node energy budget (enforces relay cost)
+    //    u" → v'  : capacity = INF   — BSN communication edge (no extra cost)
+    //    j" → t   : capacity = mⱼ    — raw storage units at storage node j
+    //
+    //  SIZE-AWARE SINK CHECK:
+    //    Storage node j only accepts a packet from DG i if sinkCap[j] >= szᵢ.
+    //    After Δ packets are pushed, storage is reduced by Δ × szᵢ.
+    // ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
     // =========================================================================
 
     public void buildCFN(List<Integer> dgNodes,
@@ -224,7 +197,12 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  BFS FOR SHORTEST FEASIBLE AUGMENTING PATH
+    //  BFS FOR SHORTEST FEASIBLE AUGMENTING PATH (FAP)
+    //
+    //  Finds the shortest path s → cfnSource → t in the residual graph,
+    //  blocked from entering other DG in-nodes so flow stays attributed
+    //  to the correct source. Size-aware: only accepts a storage sink if
+    //  sinkCap[j] >= szᵢ (at least one packet of that size fits).
     // =========================================================================
 
     private int[] bfsFAP(int cfnSource, int szI, int[] sinkCap) {
@@ -234,9 +212,7 @@ public class SensorStuff {
         Arrays.fill(parent, -1);
 
         Queue<Integer> q = new LinkedList<>();
-        q.add(S);
-        vis[S]    = true;
-        parent[S] = S;
+        q.add(S); vis[S] = true; parent[S] = S;
 
         boolean reached = false;
         while (!q.isEmpty()) {
@@ -245,17 +221,14 @@ public class SensorStuff {
             for (int v = 0; v < cfnNodes; v++) {
                 if (vis[v] || v == T) continue;
                 if (cap[u][v] - flow[u][v] <= 0) continue;
-                vis[v]    = true;
-                parent[v] = u;
-                q.add(v);
+                vis[v] = true; parent[v] = u; q.add(v);
             }
         }
         if (!reached) return null;
 
         boolean[] vis2 = new boolean[cfnNodes];
         Queue<Integer> q2 = new LinkedList<>();
-        q2.add(cfnSource);
-        vis2[cfnSource] = true;
+        q2.add(cfnSource); vis2[cfnSource] = true;
 
         while (!q2.isEmpty()) {
             int u = q2.poll();
@@ -268,22 +241,87 @@ public class SensorStuff {
                     parent[v] = u;
                     return parent;
                 }
-                vis2[v]   = true;
-                parent[v] = u;
-                q2.add(v);
+                vis2[v] = true; parent[v] = u; q2.add(v);
             }
         }
         return null;
     }
 
     // =========================================================================
+    //  PRE-FLIGHT FEASIBILITY CHECK
+    //
+    //  Before running MWF, check whether all DG packets can be offloaded.
+    //  If total storage capacity >= total packets AND total node energy across
+    //  all nodes >= total packets, there is no bottleneck — MWF is unnecessary.
+    //
+    //  As Prof. Tang describes: "if all the flows can be offloaded, there's no
+    //  point to do this because all the packets can be offloaded, there's enough
+    //  energy and storage, no worries."
+    //
+    //  Returns true if MWF is needed (bottleneck exists), false if not.
+    // =========================================================================
+
+    public boolean needsMWF(List<Integer> dgNodes,
+                            List<Integer> storageNodes,
+                            int[]         storageCapacity) {
+        int totalPackets = 0;
+        int totalStorageDemand = 0;
+        for (int dg : dgNodes) {
+            totalPackets += packetsPerNode[dg];
+            totalStorageDemand += packetsPerNode[dg] * packetSize[dg];
+        }
+
+        int totalStorage = 0;
+        int usableStorage = 0;
+        boolean hasDeadStorage = false;
+        for (int j = 0; j < storageNodes.size(); j++) {
+            int st = storageNodes.get(j);
+            int capJ = storageCapacity[j];
+            totalStorage += capJ;
+            if (capJ > 0 && nodeEnergy[st] <= 0) hasDeadStorage = true;
+            if (nodeEnergy[st] > 0) usableStorage += capJ;
+        }
+
+        int totalEnergy = 0;
+        for (int e : nodeEnergy) totalEnergy += e;
+
+        boolean hasDeadSource = false;
+        for (int dg : dgNodes)
+            if (packetsPerNode[dg] > 0 && nodeEnergy[dg] <= 0)
+                hasDeadSource = true;
+
+        boolean storageSufficient = usableStorage >= totalStorageDemand;
+        boolean energySufficient  = totalEnergy   >= totalPackets;
+
+        System.out.printf("%n-- Feasibility Check --%n");
+        System.out.printf("  Total DG packets:    %d%n", totalPackets);
+        System.out.printf("  Total storage need:  %d%n", totalStorageDemand);
+        System.out.printf("  Total storage cap:   %d%n", totalStorage);
+        System.out.printf("  Usable storage cap:  %d  (%s)%n",
+                          usableStorage, storageSufficient ? "sufficient" : "BOTTLENECK");
+        System.out.printf("  Total node energy:   %d  (%s)%n",
+                          totalEnergy, energySufficient ? "sufficient" : "BOTTLENECK");
+
+        if (hasDeadSource)
+            System.out.println("  Dead source detected: at least one DG has packets but no energy.");
+        if (hasDeadStorage)
+            System.out.println("  Dead storage detected: at least one storage node has capacity but no energy.");
+
+        if (storageSufficient && energySufficient && !hasDeadSource && !hasDeadStorage) {
+            System.out.println("  >> All packets can be offloaded — MWF not needed.");
+            return false;
+        }
+        System.out.println("  >> Bottleneck detected — running MWF.");
+        return true;
+    }
+
+    // =========================================================================
     //  RELAY NODE SUMMARY PRINTER
     //
     //  After augmentation, prints which BSN nodes acted purely as relays
-    //  (i.e., carried flow but are neither a DG source nor a storage sink).
-    //  Also shows how many packets they forwarded and energy consumed.
-    //  Matches Prof. Tang's point: "both DG and storage nodes can be relay
-    //  nodes" — any node in the middle of a flow path is relaying.
+    //  (carried flow but are neither a DG source nor a storage sink on that
+    //  path). Shows packets forwarded and energy consumed per relay node.
+    //  Both DG nodes and storage nodes can act as relays for other flows.
     // =========================================================================
 
     private void printRelayInfo(Map<Integer, Integer> relayCount,
@@ -292,8 +330,8 @@ public class SensorStuff {
         System.out.println("\n-- Relay Node Activity --");
         boolean anyRelay = false;
         for (Map.Entry<Integer, Integer> e : relayCount.entrySet()) {
-            int node   = e.getKey();
-            int pkts   = e.getValue();
+            int node = e.getKey();
+            int pkts = e.getValue();
             String role = dgSet.contains(node)      ? " [DG-relay]"
                         : storageSet.contains(node) ? " [Storage-relay]"
                         : " [Relay]";
@@ -304,15 +342,132 @@ public class SensorStuff {
         if (!anyRelay) System.out.println("  No relay nodes used.");
     }
 
+
+    private int cfnToBSNNode(int cfnNode) {
+        if (cfnNode <= 0 || cfnNode == superSink()) return -1;
+        return (cfnNode - 1) / 2;
+    }
+
+    private List<Integer> extractBSNPathFromParent(int[] parent) {
+        int S = 0, T = superSink();
+        List<Integer> cfnPath = new ArrayList<>();
+        int cur = T, guard = 0;
+        cfnPath.add(T);
+
+        while (cur != S && guard++ < cfnNodes) {
+            int prev = parent[cur];
+            if (prev == -1 || prev == cur) break;
+            cfnPath.add(prev);
+            cur = prev;
+        }
+
+        Collections.reverse(cfnPath);
+
+        List<Integer> bsnPath = new ArrayList<>();
+        for (int node : cfnPath) {
+            int bsn = cfnToBSNNode(node);
+            if (bsn == -1) continue;
+            if (bsnPath.isEmpty() || bsnPath.get(bsnPath.size() - 1) != bsn)
+                bsnPath.add(bsn);
+        }
+        return bsnPath;
+    }
+
+    private String relayRoleTag(int node, Set<Integer> dgSet, Set<Integer> storageSet) {
+        if (dgSet.contains(node)) return "DG-relay";
+        if (storageSet.contains(node)) return "Storage-relay";
+        return "Relay";
+    }
+
+    private void printRelayTrace(String algoTag,
+                                 int dg,
+                                 int sinkNode,
+                                 int delta,
+                                 int vi,
+                                 int szI,
+                                 List<Integer> bsnPath,
+                                 Set<Integer> dgSet,
+                                 Set<Integer> storageSet) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("  [TRACE ").append(algoTag).append("] DG ").append(dg)
+          .append(" -> Storage ").append(sinkNode)
+          .append(" | Δ=").append(delta)
+          .append(" | v=").append(vi)
+          .append(" | sz=").append(szI)
+          .append(" | path: ");
+
+        for (int i = 0; i < bsnPath.size(); i++) {
+            int node = bsnPath.get(i);
+            if (i > 0) sb.append(" -> ");
+            sb.append(node);
+            if (i > 0 && i < bsnPath.size() - 1) {
+                sb.append("[").append(relayRoleTag(node, dgSet, storageSet)).append("]");
+            }
+        }
+        System.out.println(sb);
+
+        if (bsnPath.size() <= 2) {
+            System.out.println("    relays: none");
+            return;
+        }
+
+        System.out.println("    relays:");
+        for (int i = 1; i < bsnPath.size() - 1; i++) {
+            int relay = bsnPath.get(i);
+            System.out.printf("      node %d [%s] forwarded %d packet(s), energy impact %d/%d%n",
+                              relay, relayRoleTag(relay, dgSet, storageSet),
+                              delta, delta, nodeEnergy[relay]);
+        }
+    }
+
     // =========================================================================
-    //  ALGORITHM 1: GOA
+    // ████████████████████████████████████████████████████████████████████████
+    //
+    //   ALGORITHMS — GOA, DENSITY GOA, APPROX GOA
+    //
+    //   All three algorithms share the same BFN graph and FAP-based flow
+    //   augmentation loop. The only difference between them is the order
+    //   in which DG sources are processed. Each algorithm:
+    //     1. Runs a pre-flight feasibility check (needsMWF)
+    //     2. Builds the BFN (buildCFN)
+    //     3. Sorts DG nodes by its chosen key
+    //     4. Iterates: find FAP → compute bottleneck Δ → augment flow
+    //     5. Prints relay node activity and launches graph windows
+    //
+    // ████████████████████████████████████████████████████████████████████████
     // =========================================================================
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ALGORITHM 1 — GOA (Greedy Optimal Algorithm), Size-Aware Extension
+    //
+    //  WHAT IT DOES:
+    //    Pushes the highest-priority packets first. Sorts DGs by vᵢ and
+    //    greedily routes as many packets as possible before moving on.
+    //
+    //  WHEN IT WINS:
+    //    When high-priority packets are also small — they don't waste storage.
+    //
+    //  WHEN IT LOSES:
+    //    When a large high-priority packet fills storage that could have held
+    //    many small packets with greater combined priority.
+    //    Counterexample: DG0 v=10 sz=3 d=2 vs DG1 v=7 sz=1 d=6, cap=6
+    //                    GOA=20, Optimal=42
+    //
+    //  STEPS:
+    //    1. Sort DGs by priority vᵢ descending
+    //    2. For each DG (highest priority first):
+    //       a. Find shortest FAP through this DG in the residual graph
+    //       b. Compute Δ = min(path residual, remaining packets, floor(mⱼ/szᵢ))
+    //       c. Augment flow by Δ along the path
+    //       d. Update: dᵢ -= Δ, mⱼ -= Δ×szᵢ
+    //       e. Repeat until no FAPs exist through this DG
+    //    3. Move to next DG; stop when no FAPs remain anywhere
+    // ─────────────────────────────────────────────────────────────────────────
 
     public double goa(List<Integer> dgNodes,
                       List<Integer> storageNodes,
                       int[]         storageCapacity) {
 
-        // pre-flight check: skip MWF if no bottleneck
         if (!needsMWF(dgNodes, storageNodes, storageCapacity)) return 0.0;
 
         buildCFN(dgNodes, storageNodes, storageCapacity);
@@ -326,6 +481,7 @@ public class SensorStuff {
         for (int j = 0; j < storageNodes.size(); j++)
             sinkCap[outNode(storageNodes.get(j))] = storageCapacity[j];
 
+        // step 1: sort by priority vᵢ descending
         Integer[] order = new Integer[dgNodes.size()];
         for (int i = 0; i < order.length; i++) order[i] = i;
         Arrays.sort(order, (a, b) ->
@@ -333,12 +489,13 @@ public class SensorStuff {
 
         double      totalWeight  = 0.0;
         List<int[]> goaFlowEdges = new ArrayList<>();
-        Map<Integer, Integer> relayCount = new LinkedHashMap<>(); // relay tracking
+        Map<Integer, Integer> relayCount = new LinkedHashMap<>();
         int         maxIter      = cfnNodes * cfnNodes;
 
         Set<Integer> dgSet      = new HashSet<>(dgNodes);
         Set<Integer> storageSet = new HashSet<>(storageNodes);
 
+        // step 2: greedily push flow from each DG in priority order
         for (int idx : order) {
             int dg     = dgNodes.get(idx);
             int cfnSrc = inNode(dg);
@@ -347,11 +504,14 @@ public class SensorStuff {
             int iters  = 0;
 
             while (remaining[idx] > 0 && iters++ < maxIter) {
+
+                // step 2a: find shortest FAP through this DG
                 int[] parent = bfsFAP(cfnSrc, szI, sinkCap);
                 if (parent == null) break;
 
                 int sinkOut = parent[T];
 
+                // step 2b: compute bottleneck Δ
                 int pathBottleneck = Integer.MAX_VALUE;
                 int cur = T, steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
@@ -365,24 +525,18 @@ public class SensorStuff {
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
 
-                // collect relay nodes: BSN nodes in the middle of this path
-                List<Integer> pathBsnNodes = new ArrayList<>();
-                cur = T; steps = 0;
-                while (cur != S && steps++ < cfnNodes) {
-                    int prev = parent[cur];
-                    if (prev == -1 || prev == cur) break;
-                    if (prev != S && prev != T && cur != S && cur != T) {
-                        int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
-                        if (bsnU != bsnV && !pathBsnNodes.contains(bsnU)
-                                         && bsnU != dg
-                                         && !storageSet.contains(bsnU))
-                            pathBsnNodes.add(bsnU);
-                    }
-                    cur = prev;
-                }
-                for (int relay : pathBsnNodes)
+                // collect relay nodes along this path
+                List<Integer> pathBsnNodes = extractBSNPathFromParent(parent);
+                int sinkNode = pathBsnNodes.isEmpty() ? ((sinkOut - 1) / 2)
+                                                      : pathBsnNodes.get(pathBsnNodes.size() - 1);
+                for (int k = 1; k < pathBsnNodes.size() - 1; k++) {
+                    int relay = pathBsnNodes.get(k);
                     relayCount.merge(relay, delta, Integer::sum);
+                }
+                printRelayTrace("GOA", dg, sinkNode, delta, vi, szI,
+                                pathBsnNodes, dgSet, storageSet);
 
+                // step 2c: augment flow along path
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
                     int prev = parent[cur];
@@ -404,16 +558,16 @@ public class SensorStuff {
                     cur = prev;
                 }
 
+                // step 2d: update capacities
                 remaining[idx]   -= delta;
                 sinkCap[sinkOut] -= delta * szI;
-                cap[S][cfnSrc]   -= delta;
-                cap[sinkOut][T]  -= delta;
                 totalWeight      += (double) delta * vi;
 
                 System.out.printf(
                     "  Pushed %d packet(s) from DG %d (v=%d, sz=%d) -> sink %d%n",
                     delta, dg, vi, szI, sinkOut);
             }
+            // step 2e: move to next DG when no more FAPs exist through this one
         }
 
         System.out.printf("%nTotal Preserved Priority (GOA): %.1f%n", totalWeight);
@@ -425,9 +579,35 @@ public class SensorStuff {
         return totalWeight;
     }
 
-    // =========================================================================
-    //  ALGORITHM 2: DENSITY GOA
-    // =========================================================================
+    // ─────────────────────────────────────────────────────────────────────────
+    // ALGORITHM 2 — DENSITY GOA (Value Density Greedy), New Contribution
+    //
+    //  WHAT IT DOES:
+    //    Pushes packets with the highest priority-per-storage-unit (ρ = v/sz)
+    //    first. Treats storage as the binding constraint and maximizes how
+    //    much priority fits per unit consumed — like fractional knapsack.
+    //
+    //  WHEN IT WINS:
+    //    When high-priority packets are large and low-priority packets are
+    //    small — sorting by raw priority wastes storage on big packets.
+    //
+    //  WHEN IT LOSES:
+    //    When leftover storage fragments can't fit remaining packets, creating
+    //    bin-packing difficulty that density sorting can't resolve.
+    //    Counterexample: DG0 v=9 sz=3 vs DG1 v=8 sz=2, cap=5
+    //                    Density=16, Optimal=17
+    //
+    //  STEPS:
+    //    1. Compute density ρᵢ = vᵢ / szᵢ for each DG
+    //    2. Sort DGs by ρᵢ descending (highest density first)
+    //    3. For each DG (highest density first):
+    //       a. Find shortest FAP through this DG in the residual graph
+    //       b. Compute Δ = min(path residual, remaining packets, floor(mⱼ/szᵢ))
+    //       c. Augment flow by Δ along the path
+    //       d. Update: dᵢ -= Δ, mⱼ -= Δ×szᵢ
+    //       e. Repeat until no FAPs exist through this DG
+    //    4. Move to next DG; stop when no FAPs remain anywhere
+    // ─────────────────────────────────────────────────────────────────────────
 
     public double goaDensity(List<Integer> dgNodes,
                              List<Integer> storageNodes,
@@ -446,6 +626,7 @@ public class SensorStuff {
         for (int j = 0; j < storageNodes.size(); j++)
             sinkCap[outNode(storageNodes.get(j))] = storageCapacity[j];
 
+        // step 1-2: compute and sort by density ρᵢ = vᵢ/szᵢ descending
         Integer[] order = new Integer[dgNodes.size()];
         for (int i = 0; i < order.length; i++) order[i] = i;
         Arrays.sort(order, (a, b) -> {
@@ -472,6 +653,7 @@ public class SensorStuff {
                     (double) packetPriority[dg] / packetSize[dg]);
         }
 
+        // step 3: greedily push flow from each DG in density order
         for (int idx : order) {
             int dg     = dgNodes.get(idx);
             int cfnSrc = inNode(dg);
@@ -480,11 +662,14 @@ public class SensorStuff {
             int iters  = 0;
 
             while (remaining[idx] > 0 && iters++ < maxIter) {
+
+                // step 3a: find shortest FAP through this DG
                 int[] parent = bfsFAP(cfnSrc, szI, sinkCap);
                 if (parent == null) break;
 
                 int sinkOut = parent[T];
 
+                // step 3b: compute bottleneck Δ
                 int pathBottleneck = Integer.MAX_VALUE;
                 int cur = T, steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
@@ -498,24 +683,18 @@ public class SensorStuff {
                             Math.min(remaining[idx], sinkCap[sinkOut] / szI));
                 if (delta <= 0) break;
 
-                // relay tracking
-                List<Integer> pathBsnNodes = new ArrayList<>();
-                cur = T; steps = 0;
-                while (cur != S && steps++ < cfnNodes) {
-                    int prev = parent[cur];
-                    if (prev == -1 || prev == cur) break;
-                    if (prev != S && prev != T && cur != S && cur != T) {
-                        int bsnU = (prev-1)/2, bsnV = (cur-1)/2;
-                        if (bsnU != bsnV && !pathBsnNodes.contains(bsnU)
-                                         && bsnU != dg
-                                         && !storageSet.contains(bsnU))
-                            pathBsnNodes.add(bsnU);
-                    }
-                    cur = prev;
-                }
-                for (int relay : pathBsnNodes)
+                // collect relay nodes along this path
+                List<Integer> pathBsnNodes = extractBSNPathFromParent(parent);
+                int sinkNode = pathBsnNodes.isEmpty() ? ((sinkOut - 1) / 2)
+                                                      : pathBsnNodes.get(pathBsnNodes.size() - 1);
+                for (int k = 1; k < pathBsnNodes.size() - 1; k++) {
+                    int relay = pathBsnNodes.get(k);
                     relayCount.merge(relay, delta, Integer::sum);
+                }
+                printRelayTrace("DENS", dg, sinkNode, delta, vi, szI,
+                                pathBsnNodes, dgSet, storageSet);
 
+                // step 3c: augment flow along path
                 cur = T; steps = 0;
                 while (cur != S && steps++ < cfnNodes) {
                     int prev = parent[cur];
@@ -537,16 +716,16 @@ public class SensorStuff {
                     cur = prev;
                 }
 
+                // step 3d: update capacities
                 remaining[idx]   -= delta;
                 sinkCap[sinkOut] -= delta * szI;
-                cap[S][cfnSrc]   -= delta;
-                cap[sinkOut][T]  -= delta;
                 totalWeight      += (double) delta * vi;
 
                 System.out.printf(
                     "  Pushed %d packet(s) from DG %d (v=%d, sz=%d, rho=%.2f) -> sink %d%n",
                     delta, dg, vi, szI, (double)vi/szI, sinkOut);
             }
+            // step 3e: move to next DG when no more FAPs exist through this one
         }
 
         System.out.printf("%nTotal Preserved Priority (Density GOA): %.1f%n", totalWeight);
@@ -558,27 +737,65 @@ public class SensorStuff {
         return totalWeight;
     }
 
-    // =========================================================================
-    //  ALGORITHM 3: APPROX GOA
-    // =========================================================================
+    // ─────────────────────────────────────────────────────────────────────────
+    // ALGORITHM 3 — APPROX GOA (2-Approximation), Adapted from Alg. 5
+    //
+    //  WHAT IT DOES:
+    //    Runs both GOA (sort by vᵢ) and Density GOA (sort by vᵢ/szᵢ) as
+    //    sub-routines and returns whichever result is higher.
+    //
+    //  GUARANTEE:
+    //    Always produces at least half the theoretical optimal — proven by
+    //    adapting Theorem 5 from Rivera & Tang (2024) to the size-aware case.
+    //
+    //  WHY IT WORKS:
+    //    One of the two orderings must capture at least half the optimal
+    //    priority. Taking the max of both ensures the guarantee holds even
+    //    when neither sub-routine alone is optimal.
+    //
+    //  STEPS:
+    //    1. Run sub-routine A: greedy by vᵢ (same as GOA) → result VfA
+    //    2. Run sub-routine B: greedy by vᵢ/szᵢ (same as Density GOA) → VfB
+    //    3. Return max(VfA, VfB)
+    //
+    //  APPROXIMATION PROOF SKETCH:
+    //    Let Sw = sources that send in sub-routine B before first failure sⱼ
+    //    V'f = Σ(sᵢ∈Sw)(vᵢ×dᵢ)  and  vⱼ×dⱼ <= Vf  (A sends highest v first)
+    //    Vopt <= V'f + vⱼ×dⱼ <= V'f + Vf
+    //    Since Vf = max(Vf, V'f):  Vf >= Vopt / 2
+    // ─────────────────────────────────────────────────────────────────────────
 
     public double goaApprox(List<Integer> dgNodes,
                             List<Integer> storageNodes,
                             int[]         storageCapacity) {
 
+        // step 1: sub-routine A (sort by vᵢ)
         System.out.println("\n-- Approx Sub-routine A: sort by v --");
         double vfA = runGreedy(dgNodes, storageNodes, storageCapacity, false);
 
+        // step 2: sub-routine B (sort by vᵢ/szᵢ)
         System.out.println("\n-- Approx Sub-routine B: sort by v/sz --");
         double vfB = runGreedy(dgNodes, storageNodes, storageCapacity, true);
 
+        // step 3: return max(VfA, VfB)
         double best = Math.max(vfA, vfB);
         System.out.printf("%nApprox (A) by v:         %.1f%n", vfA);
         System.out.printf("Approx (B) by v/sz:      %.1f%n", vfB);
         System.out.printf("Approx result (max A,B):  %.1f%n", best);
-
         return best;
     }
+
+    // =========================================================================
+    // ████████████████████████████████████████████████████████████████████████
+    //   END OF ALGORITHMS
+    // ████████████████████████████████████████████████████████████████████████
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    //  Shared greedy core used by both Approx GOA sub-routines.
+    //  useDensity=false -> sort by vᵢ (sub-routine A)
+    //  useDensity=true  -> sort by vᵢ/szᵢ (sub-routine B)
+    // -------------------------------------------------------------------------
 
     private double runGreedy(List<Integer> dgNodes,
                              List<Integer> storageNodes,
@@ -652,8 +869,6 @@ public class SensorStuff {
 
                 remaining[idx]   -= delta;
                 sinkCap[sinkOut] -= delta * szI;
-                cap[S][cfnSrc]   -= delta;
-                cap[sinkOut][T]  -= delta;
                 totalWeight      += (double) delta * vi;
 
                 System.out.printf(
@@ -667,7 +882,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  SILENT RUN
+    //  SILENT RUN (no output, no graphs — used for scaling trials)
     // =========================================================================
 
     public double runSilent(List<Integer> dgNodes,
@@ -741,8 +956,6 @@ public class SensorStuff {
 
                 remaining[idx]   -= delta;
                 sinkCap[sinkOut] -= delta * szI;
-                cap[S][cfnSrc]   -= delta;
-                cap[sinkOut][T]  -= delta;
                 totalWeight      += (double) delta * vi;
             }
         }
@@ -750,7 +963,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  SILENT RUN WITH FLOW EDGE COLLECTION
+    //  SILENT RUN WITH FLOW EDGE COLLECTION (used by visual run)
     // =========================================================================
 
     public double runSilentCollect(List<Integer> dgNodes,
@@ -837,8 +1050,6 @@ public class SensorStuff {
 
                 remaining[idx]   -= delta;
                 sinkCap[sinkOut] -= delta * szI;
-                cap[S][cfnSrc]   -= delta;
-                cap[sinkOut][T]  -= delta;
                 totalWeight      += (double) delta * vi;
             }
         }
@@ -872,7 +1083,6 @@ public class SensorStuff {
                     new HashSet<>(dgNodes), storageNodes,
                     nodeLoc, packetsPerNode, storageSlots,
                     adjMatrix, goaFlowEdges);
-
         SwingUtilities.invokeLater(panel);
     }
 
@@ -923,6 +1133,9 @@ public class SensorStuff {
         Map<Integer, Integer> packetSizeMap = new LinkedHashMap<>();
         Map<Integer, Integer> packetsMap    = new LinkedHashMap<>();
         Map<Integer, Integer> storageCapMap = new LinkedHashMap<>();
+        Map<Integer, Integer> energyMap     = new LinkedHashMap<>();
+
+        for (int i = 0; i < n; i++) energyMap.put(i + 1, nodeEnergy[i]);
 
         for (int dg : dgNodes) {
             priorityMap.put(dg + 1,   packetPriority[dg]);
@@ -944,9 +1157,9 @@ public class SensorStuff {
         panel.setNodePacketSize(packetSizeMap);
         panel.setNodePackets(packetsMap);
         panel.setNodeStorageCap(storageCapMap);
+        panel.setNodeEnergy(energyMap);
         panel.setAlgoTitle(algoTitle);
         panel.setConnected(components != null && components.size() == 1);
-
         SwingUtilities.invokeLater(panel);
     }
 
@@ -1008,7 +1221,7 @@ public class SensorStuff {
         int visNodes = Math.max(2, kb.nextInt());
 
         SensorStuff visNet = new SensorStuff(visNodes, choice);
-        visNet.randomNodes(widthX, lenY);   // now uses clustered placement
+        visNet.randomNodes(widthX, lenY);
         visNet.createE(TR);
         visNet.randomNodeEnergies(minE, maxE);
         visNet.randomDataPackets(minPkt, maxPkt);
@@ -1023,7 +1236,7 @@ public class SensorStuff {
                     visNet.adjM != null ? visNet.adjM.getAdjM()
                                        : visNet.adjList, i, visVisited));
 
-        // IMPROVED: randomized DG/storage ratio instead of fixed 50/50
+        // randomized DG/storage ratio instead of fixed 50/50
         List<Integer> visDG  = new ArrayList<>();
         List<Integer> visST  = new ArrayList<>();
         List<Integer> visAll = new ArrayList<>();
@@ -1031,23 +1244,19 @@ public class SensorStuff {
         Collections.shuffle(visAll, rand);
         visDG.add(visAll.get(0));
         visST.add(visAll.get(1));
-        double visDgRatio = 0.2 + rand.nextDouble() * 0.5; // 20–70% DGs
+        double visDgRatio = 0.2 + rand.nextDouble() * 0.5;
         for (int i = 2; i < visNodes; i++) {
             if (rand.nextDouble() < visDgRatio) visDG.add(visAll.get(i));
             else                               visST.add(visAll.get(i));
         }
 
-        int visTotalCap = 0;
-        int[] visCap    = new int[visST.size()];
-        for (int j = 0; j < visCap.length; j++) {
-            visCap[j]    = (minCap == maxCap) ? minCap
-                         : rand.nextInt(maxCap - minCap + 1) + minCap;
-            visTotalCap += visCap[j];
-        }
+        int[] visCap = new int[visST.size()];
+        for (int j = 0; j < visCap.length; j++)
+            visCap[j] = (minCap == maxCap) ? minCap
+                      : rand.nextInt(maxCap - minCap + 1) + minCap;
 
         System.out.printf("  Visual run DG ratio: %.0f%% (%d DGs, %d storage)%n",
                           visDgRatio * 100, visDG.size(), visST.size());
-
         System.out.println("\n-- Visual Run DG Setup --");
         for (int dg : visDG)
             System.out.printf(
@@ -1058,8 +1267,7 @@ public class SensorStuff {
         for (int j = 0; j < visST.size(); j++)
             System.out.printf(
                 "  Storage %d: capacity=%d, energy=%d%n",
-                visST.get(j), visCap[j],
-                visNet.nodeEnergy[visST.get(j)]);
+                visST.get(j), visCap[j], visNet.nodeEnergy[visST.get(j)]);
 
         // use goa() and goaDensity() directly so feasibility check,
         // relay tracking, and console output all appear in the visual run
@@ -1084,9 +1292,9 @@ public class SensorStuff {
             for (int t = 1; t <= trials; t++) {
 
                 SensorStuff net = new SensorStuff(numNodes, choice);
-                net.randomNodes(widthX, lenY);   // clustered placement
+                net.randomNodes(widthX, lenY);
 
-                // IMPROVED: per-trial TR jitter (75%–125% of base TR)
+                // per-trial TR jitter (75%–125% of base TR)
                 double trJitter = 0.75 + rand.nextDouble() * 0.5;
                 int trialTR = (int)(TR * trJitter);
                 net.createE(trialTR);
@@ -1104,7 +1312,7 @@ public class SensorStuff {
                             net.adjM != null ? net.adjM.getAdjM()
                                              : net.adjList, i, visited));
 
-                // IMPROVED: randomized DG/storage ratio per trial
+                // randomized DG/storage ratio per trial
                 List<Integer> dgNodes      = new ArrayList<>();
                 List<Integer> storageNodes = new ArrayList<>();
                 List<Integer> allNodes     = new ArrayList<>();
@@ -1112,7 +1320,7 @@ public class SensorStuff {
                 Collections.shuffle(allNodes, rand);
                 dgNodes.add(allNodes.get(0));
                 storageNodes.add(allNodes.get(1));
-                double dgRatio = 0.2 + rand.nextDouble() * 0.5; // 20–70% DGs
+                double dgRatio = 0.2 + rand.nextDouble() * 0.5;
                 for (int i = 2; i < numNodes; i++) {
                     if (rand.nextDouble() < dgRatio) dgNodes.add(allNodes.get(i));
                     else                             storageNodes.add(allNodes.get(i));
@@ -1159,7 +1367,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
-    //  ORIGINAL METHODS (unchanged)
+    //  ORIGINAL METHODS
     // =========================================================================
 
     public static double distanceNodes(double[] n1, double[] n2) {

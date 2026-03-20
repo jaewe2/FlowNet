@@ -1,6 +1,6 @@
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.geom.RoundRectangle2D;
+import java.awt.geom.*;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
@@ -8,436 +8,410 @@ import javax.swing.*;
 public class SensorNetworkGraph extends JPanel implements Runnable {
     private static final long serialVersionUID = 1L;
 
-    private Map<Integer, Axis> nodes;
-    private double graphWidth;
-    private double graphHeight;
-    private int    scaling   = 70;   // more left/bottom margin for axis labels
-    private int    legendW   = 280;  // reserved width on right for legend
-    private int    nodeW     = 84;
-    private int    nodeH     = 76;
-    private int    gridCount = 10;
-    private boolean connected;
-    private Map<Integer, Set<Integer>> adjList;
-    private String algoTitle = "GOA";
+    // ── OR-Tools inspired palette ─────────────────────────────────────────────
+    private static final Color COL_BG        = new Color(248, 248, 252);
+    private static final Color COL_GRID      = new Color(220, 215, 235);
+    private static final Color COL_DG        = new Color(130, 50,  200);
+    private static final Color COL_DG_LIGHT  = new Color(200, 165, 240);
+    private static final Color COL_ST        = new Color(20,  150, 80);
+    private static final Color COL_ST_LIGHT  = new Color(120, 210, 160);
+    private static final Color COL_EDGE      = new Color(140, 120, 180);
+    private static final Color COL_FLOW      = new Color(220, 80,  20);
+    private static final Color COL_FLOW_GLOW = new Color(255, 140, 40,  80);
+    private static final Color COL_TEXT      = new Color(30,  15,  60);
+    private static final Color COL_RELAY     = new Color(245, 185, 35);
 
-    // ── GOA display data ──────────────────────────────────────────────────────
-    private Set<Integer> dgNodeIds      = new HashSet<>();
-    private Set<Integer> storageNodeIds = new HashSet<>();
-    private List<int[]>  flowEdges      = new ArrayList<>();
+    private static final int NODE_R   = 34;
+    private static final int gridCount = 10;
+    private static final int legendW   = 300;
 
-    // ── per-node info ─────────────────────────────────────────────────────────
-    private Map<Integer, Integer> nodePriority   = new HashMap<>();
-    private Map<Integer, Integer> nodePacketSize = new HashMap<>();
-    private Map<Integer, Integer> nodePackets    = new HashMap<>();
-    private Map<Integer, Integer> nodeStorageCap = new HashMap<>();
+    private Map<Integer, Axis>         nodes;
+    private double                     graphWidth, graphHeight;
+    private int                        scaling = 60;
+    private boolean                    connected;
+    private Map<Integer,Set<Integer>>  adjList;
+    private String                     algoTitle = "GOA";
 
-    // ── drag state ────────────────────────────────────────────────────────────
-    private Map<Integer, Point> nodePixels     = new HashMap<>();
-    private int     dragNodeId  = -1;
-    private int     dragOffsetX = 0;
-    private int     dragOffsetY = 0;
-    private boolean pixelsInit  = false;
+    private Set<Integer>          dgNodeIds      = new HashSet<>();
+    private Set<Integer>          storageNodeIds = new HashSet<>();
+    private List<int[]>           flowEdges      = new ArrayList<>();
+    private Map<Integer,Integer>  nodePriority   = new HashMap<>();
+    private Map<Integer,Integer>  nodePacketSize = new HashMap<>();
+    private Map<Integer,Integer>  nodePackets    = new HashMap<>();
+    private Map<Integer,Integer>  nodeStorageCap = new HashMap<>();
+    private Map<Integer,Integer>  nodeEnergy     = new HashMap<>();
+
+    private Map<Integer,Point> nodePixels  = new HashMap<>();
+    private int  dragNodeId = -1, dragOffsetX, dragOffsetY;
+    private boolean pixelsInit = false;
 
     // ── setters ───────────────────────────────────────────────────────────────
-    public void setDgNodeIds(Set<Integer> ids)             { dgNodeIds      = ids; repaint(); }
-    public void setStorageNodeIds(Set<Integer> ids)        { storageNodeIds = ids; repaint(); }
-    public void setFlowEdges(List<int[]> edges)            { flowEdges      = edges; repaint(); }
-    public void setNodePriority(Map<Integer, Integer> m)   { nodePriority   = m; repaint(); }
-    public void setNodePacketSize(Map<Integer, Integer> m) { nodePacketSize = m; repaint(); }
-    public void setNodePackets(Map<Integer, Integer> m)    { nodePackets    = m; repaint(); }
-    public void setNodeStorageCap(Map<Integer, Integer> m) { nodeStorageCap = m; repaint(); }
-    public void setAlgoTitle(String t)                     { algoTitle = t; }
-    public boolean isConnected()                           { return connected; }
-    public void setConnected(boolean c)                    { connected = c; }
-    public Map<Integer, Set<Integer>> getAdjList()         { return adjList; }
-    public void setAdjList(Map<Integer, Set<Integer>> a)   { adjList = a; }
-    public void setNodes(Map<Integer, Axis> n)             { nodes = n; pixelsInit = false; invalidate(); repaint(); }
-    public Map<Integer, Axis> getNodes()                   { return nodes; }
-    public double getGraphWidth()                          { return graphWidth; }
-    public void   setGraphWidth(double w)                  { graphWidth = w; }
-    public double getGraphHeight()                         { return graphHeight; }
-    public void   setGraphHeight(double h)                 { graphHeight = h; }
+    public void setDgNodeIds(Set<Integer> v)             { dgNodeIds=v;      repaint(); }
+    public void setStorageNodeIds(Set<Integer> v)        { storageNodeIds=v; repaint(); }
+    public void setFlowEdges(List<int[]> v)              { flowEdges=v;      repaint(); }
+    public void setNodePriority(Map<Integer,Integer> v)  { nodePriority=v;   repaint(); }
+    public void setNodePacketSize(Map<Integer,Integer> v){ nodePacketSize=v; repaint(); }
+    public void setNodePackets(Map<Integer,Integer> v)   { nodePackets=v;    repaint(); }
+    public void setNodeStorageCap(Map<Integer,Integer> v){ nodeStorageCap=v; repaint(); }
+    public void setNodeEnergy(Map<Integer,Integer> v)    { nodeEnergy=v;     repaint(); }
+    public void setAlgoTitle(String t)                   { algoTitle=t; }
+    public boolean isConnected()                         { return connected; }
+    public void setConnected(boolean c)                  { connected=c; }
+    public Map<Integer,Set<Integer>> getAdjList()        { return adjList; }
+    public void setAdjList(Map<Integer,Set<Integer>> a)  { adjList=a; }
+    public void setNodes(Map<Integer,Axis> n)            { nodes=n; pixelsInit=false; invalidate(); repaint(); }
+    public Map<Integer,Axis> getNodes()                  { return nodes; }
+    public double getGraphWidth()                        { return graphWidth; }
+    public void   setGraphWidth(double w)                { graphWidth=w; }
+    public double getGraphHeight()                       { return graphHeight; }
+    public void   setGraphHeight(double h)               { graphHeight=h; }
 
-    // ── graph drawing area (excludes legend strip on right) ───────────────────
-    private int graphAreaWidth()  { return getWidth() - legendW - scaling; }
+    private int graphAreaWidth()  { return getWidth()  - legendW - scaling; }
     private int graphAreaHeight() { return getHeight() - 2*scaling - 30; }
 
-    // ── init pixel positions ──────────────────────────────────────────────────
+    // ── pixel init + spread ───────────────────────────────────────────────────
     private void initPixels() {
-        if (getWidth() == 0 || getHeight() == 0) return;
-        double xScale = graphAreaWidth()  / graphWidth;
-        double yScale = graphAreaHeight() / graphHeight;
+        if (getWidth()==0||getHeight()==0) return;
+        double xs = graphAreaWidth()  / graphWidth;
+        double ys = graphAreaHeight() / graphHeight;
         nodePixels.clear();
-        for (Integer key : nodes.keySet()) {
-            int px = (int)(nodes.get(key).getxAxis() * xScale) + scaling;
-            int py = (int)((graphHeight - nodes.get(key).getyAxis()) * yScale) + scaling;
-            nodePixels.put(key, new Point(px, py));
+        for (Integer k : nodes.keySet()) {
+            int px = (int)(nodes.get(k).getxAxis()*xs) + scaling;
+            int py = (int)((graphHeight-nodes.get(k).getyAxis())*ys) + scaling;
+            nodePixels.put(k, new Point(px, py));
         }
-        spreadOverlappingNodes();
+        spreadNodes();
         pixelsInit = true;
     }
 
-    /**
-     * Simple force-based spread: repeatedly push nodes apart if they overlap,
-     * until no two nodes are closer than (nodeW + 10) horizontally and
-     * (nodeH + 10) vertically.
-     */
-    private void spreadOverlappingNodes() {
-        int minDX = nodeW  + 12;
-        int minDY = nodeH  + 12;
-
-        // strict bounds: node centre must stay this far from graph edges
-        int xMin = scaling + nodeW/2 + 4;
-        int xMax = scaling + graphAreaWidth()  - nodeW/2 - 4;
-        int yMin = scaling + nodeH/2 + 4;
-        int yMax = scaling + graphAreaHeight() - nodeH/2 - 4;
-
-        List<Integer> keys = new ArrayList<>(nodePixels.keySet());
-
-        // clamp first so we start inside
+    private void spreadNodes() {
+        int min = NODE_R*2+20;
+        int xMin=scaling+NODE_R+4, xMax=scaling+graphAreaWidth()-NODE_R-4;
+        int yMin=scaling+NODE_R+4, yMax=scaling+graphAreaHeight()-NODE_R-4;
+        List<Integer> ks = new ArrayList<>(nodePixels.keySet());
         for (Point p : nodePixels.values()) {
-            p.x = Math.max(xMin, Math.min(xMax, p.x));
-            p.y = Math.max(yMin, Math.min(yMax, p.y));
+            p.x=Math.max(xMin,Math.min(xMax,p.x));
+            p.y=Math.max(yMin,Math.min(yMax,p.y));
         }
-
-        for (int iter = 0; iter < 300; iter++) {
-            boolean moved = false;
-            for (int i = 0; i < keys.size(); i++) {
-                for (int j = i+1; j < keys.size(); j++) {
-                    Point a = nodePixels.get(keys.get(i));
-                    Point b = nodePixels.get(keys.get(j));
-                    int dx = b.x - a.x, dy = b.y - a.y;
-                    int overX = minDX - Math.abs(dx);
-                    int overY = minDY - Math.abs(dy);
-                    if (overX > 0 && overY > 0) {
-                        if (overX < overY) {
-                            int push = overX/2 + 1;
-                            a.x -= (dx>=0 ? push : -push);
-                            b.x += (dx>=0 ? push : -push);
-                        } else {
-                            int push = overY/2 + 1;
-                            a.y -= (dy>=0 ? push : -push);
-                            b.y += (dy>=0 ? push : -push);
-                        }
-                        // clamp immediately after each push
-                        a.x = Math.max(xMin, Math.min(xMax, a.x));
-                        a.y = Math.max(yMin, Math.min(yMax, a.y));
-                        b.x = Math.max(xMin, Math.min(xMax, b.x));
-                        b.y = Math.max(yMin, Math.min(yMax, b.y));
-                        moved = true;
-                    }
+        for (int it=0; it<300; it++) {
+            boolean mv=false;
+            for (int i=0;i<ks.size();i++) for (int j=i+1;j<ks.size();j++) {
+                Point a=nodePixels.get(ks.get(i)), b=nodePixels.get(ks.get(j));
+                int dx=b.x-a.x, dy=b.y-a.y;
+                int ox=min-Math.abs(dx), oy=min-Math.abs(dy);
+                if (ox>0&&oy>0) {
+                    if (ox<oy){int p=ox/2+1;a.x-=(dx>=0?p:-p);b.x+=(dx>=0?p:-p);}
+                    else       {int p=oy/2+1;a.y-=(dy>=0?p:-p);b.y+=(dy>=0?p:-p);}
+                    a.x=Math.max(xMin,Math.min(xMax,a.x)); a.y=Math.max(yMin,Math.min(yMax,a.y));
+                    b.x=Math.max(xMin,Math.min(xMax,b.x)); b.y=Math.max(yMin,Math.min(yMax,b.y));
+                    mv=true;
                 }
             }
-            if (!moved) break;
+            if (!mv) break;
         }
     }
 
-    // ── hit-test ──────────────────────────────────────────────────────────────
     private int hitNode(int mx, int my) {
-        for (Map.Entry<Integer, Point> e : nodePixels.entrySet()) {
-            Point p = e.getValue();
-            if (mx >= p.x-nodeW/2 && mx <= p.x+nodeW/2 &&
-                my >= p.y-nodeH/2 && my <= p.y+nodeH/2)
-                return e.getKey();
+        for (Map.Entry<Integer,Point> e : nodePixels.entrySet()) {
+            Point p=e.getValue();
+            if (Math.hypot(mx-p.x,my-p.y)<=NODE_R) return e.getKey();
         }
         return -1;
     }
 
-    // ── mouse listeners ───────────────────────────────────────────────────────
     private void attachMouseListeners() {
         addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) {
                 if (!pixelsInit) initPixels();
-                dragNodeId = hitNode(e.getX(), e.getY());
-                if (dragNodeId != -1) {
-                    Point p = nodePixels.get(dragNodeId);
-                    dragOffsetX = e.getX() - p.x;
-                    dragOffsetY = e.getY() - p.y;
-                }
+                dragNodeId=hitNode(e.getX(),e.getY());
+                if (dragNodeId!=-1){Point p=nodePixels.get(dragNodeId);dragOffsetX=e.getX()-p.x;dragOffsetY=e.getY()-p.y;}
             }
-            @Override public void mouseReleased(MouseEvent e) { dragNodeId = -1; }
+            @Override public void mouseReleased(MouseEvent e){dragNodeId=-1;}
         });
-        addMouseMotionListener(new MouseMotionAdapter() {
-            @Override public void mouseDragged(MouseEvent e) {
-                if (dragNodeId != -1) {
-                    int xMin = scaling + nodeW/2 + 4;
-                    int xMax = scaling + graphAreaWidth()  - nodeW/2 - 4;
-                    int yMin = scaling + nodeH/2 + 4;
-                    int yMax = scaling + graphAreaHeight() - nodeH/2 - 4;
-                    int nx = Math.max(xMin, Math.min(xMax, e.getX()-dragOffsetX));
-                    int ny = Math.max(yMin, Math.min(yMax, e.getY()-dragOffsetY));
-                    nodePixels.get(dragNodeId).setLocation(nx, ny);
+        addMouseMotionListener(new MouseMotionAdapter(){
+            @Override public void mouseDragged(MouseEvent e){
+                if(dragNodeId!=-1){
+                    int xMin=scaling+NODE_R+4,xMax=scaling+graphAreaWidth()-NODE_R-4;
+                    int yMin=scaling+NODE_R+4,yMax=scaling+graphAreaHeight()-NODE_R-4;
+                    nodePixels.get(dragNodeId).setLocation(
+                        Math.max(xMin,Math.min(xMax,e.getX()-dragOffsetX)),
+                        Math.max(yMin,Math.min(yMax,e.getY()-dragOffsetY)));
                     repaint();
                 }
             }
-            @Override public void mouseMoved(MouseEvent e) {
-                if (!pixelsInit) return;
-                setCursor(hitNode(e.getX(), e.getY()) != -1
-                    ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    : Cursor.getDefaultCursor());
+            @Override public void mouseMoved(MouseEvent e){
+                if(!pixelsInit) return;
+                setCursor(hitNode(e.getX(),e.getY())!=-1
+                    ?Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    :Cursor.getDefaultCursor());
             }
         });
     }
 
-    // ── painting ──────────────────────────────────────────────────────────────
+    // ── paint ─────────────────────────────────────────────────────────────────
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         if (!pixelsInit) initPixels();
         if (nodePixels.isEmpty()) return;
 
-        Graphics2D g2 = (Graphics2D) g;
+        Graphics2D g2=(Graphics2D)g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        int gaw = graphAreaWidth();
-        int gah = graphAreaHeight();
+        int W=getWidth(),H=getHeight(),gaw=graphAreaWidth(),gah=graphAreaHeight();
 
-        // ── full background ───────────────────────────────────────────────────
-        g2.setColor(new Color(240,242,246));
-        g2.fillRect(0, 0, getWidth(), getHeight());
+        // background
+        g2.setColor(COL_BG); g2.fillRect(0,0,W,H);
+        g2.setColor(Color.WHITE); g2.fillRect(scaling,scaling,gaw,gah);
+        g2.setColor(new Color(180,160,210));
+        g2.setStroke(new BasicStroke(1.2f));
+        g2.drawRect(scaling,scaling,gaw,gah);
 
-        // ── graph background ──────────────────────────────────────────────────
-        g2.setColor(Color.WHITE);
-        g2.fillRect(scaling, scaling, gaw, gah);
-        g2.setColor(new Color(200,200,200));
-        g2.setStroke(new BasicStroke(1f));
-        g2.drawRect(scaling, scaling, gaw, gah);
-
-        // ── grid lines ────────────────────────────────────────────────────────
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        for (int i = 0; i <= gridCount; i++) {
-            // horizontal
-            int y = scaling + i*gah/gridCount;
-            g2.setColor(new Color(220,220,220));
-            g2.drawLine(scaling, y, scaling+gaw, y);
-            g2.setColor(new Color(80,80,80));
-            double val = graphHeight*(1.0 - (double)i/gridCount);
-            String lbl = String.format("%.1f", val);
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(lbl, scaling-fm.stringWidth(lbl)-5, y+fm.getAscent()/2);
-
-            // vertical
-            int x = scaling + i*gaw/gridCount;
-            g2.setColor(new Color(220,220,220));
-            g2.drawLine(x, scaling, x, scaling+gah);
-            g2.setColor(new Color(80,80,80));
-            double xval = graphWidth*(double)i/gridCount;
-            String xlbl = String.format("%.1f", xval);
-            FontMetrics fmx = g2.getFontMetrics();
-            g2.drawString(xlbl, x-fmx.stringWidth(xlbl)/2, scaling+gah+fmx.getAscent()+4);
+        // grid + axis tick labels
+        g2.setFont(new Font("SansSerif",Font.PLAIN,11));
+        for (int i=0;i<=gridCount;i++){
+            int y=scaling+i*gah/gridCount;
+            g2.setColor(COL_GRID); g2.drawLine(scaling,y,scaling+gaw,y);
+            g2.setColor(COL_TEXT);
+            String lbl=String.format("%.1f",graphHeight*(1.0-(double)i/gridCount));
+            FontMetrics fm=g2.getFontMetrics();
+            g2.drawString(lbl,scaling-fm.stringWidth(lbl)-5,y+fm.getAscent()/2);
+            int x=scaling+i*gaw/gridCount;
+            g2.setColor(COL_GRID); g2.drawLine(x,scaling,x,scaling+gah);
+            g2.setColor(COL_TEXT);
+            String xl=String.format("%.1f",graphWidth*(double)i/gridCount);
+            g2.drawString(xl,x-fm.stringWidth(xl)/2,scaling+gah+fm.getAscent()+4);
         }
 
-        Stroke def = g2.getStroke();
+        Stroke def=g2.getStroke();
+        List<Integer> keyList=new ArrayList<>(nodes.keySet());
+        Set<Integer> relayNodes=getRelayNodes();
 
-        // ── regular edges (thin gray, semi-transparent) ───────────────────────
-        g2.setColor(new Color(160,160,160,140));
-        g2.setStroke(new BasicStroke(1.5f));
-        Set<String> drawnEdges = new HashSet<>();
-        for (int node : adjList.keySet()) {
-            if (adjList.get(node)==null) continue;
-            for (int adj : adjList.get(node)) {
-                String key = Math.min(node,adj)+"-"+Math.max(node,adj);
-                if (drawnEdges.contains(key)) continue;
-                drawnEdges.add(key);
-                Point p1 = nodePixels.get(node), p2 = nodePixels.get(adj);
+        // regular edges
+        Set<String> drawn=new HashSet<>();
+        g2.setStroke(new BasicStroke(2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+        for (int nd : adjList.keySet()) {
+            if (adjList.get(nd)==null) continue;
+            for (int adj : adjList.get(nd)) {
+                String key=Math.min(nd,adj)+"-"+Math.max(nd,adj);
+                if (drawn.contains(key)) continue;
+                drawn.add(key);
+                Point p1=nodePixels.get(nd),p2=nodePixels.get(adj);
                 if (p1==null||p2==null) continue;
-                g2.drawLine(p1.x, p1.y, p2.x, p2.y);
+                g2.setColor(COL_EDGE);
+                drawArrow(g2,p1,p2,NODE_R,false);
             }
         }
 
-        // ── flow edges (thick orange solid, drawn on top) ─────────────────────
-        g2.setStroke(new BasicStroke(4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        // flow edges
         for (int[] fe : flowEdges) {
-            Point p1 = nodePixels.get(fe[0]), p2 = nodePixels.get(fe[1]);
+            Point p1=nodePixels.get(fe[0]),p2=nodePixels.get(fe[1]);
             if (p1==null||p2==null) continue;
-            // glow effect: draw wider semi-transparent line first
-            g2.setColor(new Color(255,165,0,60));
-            g2.setStroke(new BasicStroke(10f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2.drawLine(p1.x, p1.y, p2.x, p2.y);
-            // solid line
-            g2.setColor(new Color(230,100,0));
-            g2.setStroke(new BasicStroke(3.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2.drawLine(p1.x, p1.y, p2.x, p2.y);
+            g2.setColor(COL_FLOW_GLOW);
+            g2.setStroke(new BasicStroke(16f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            drawArrow(g2,p1,p2,NODE_R,false);
+            g2.setColor(COL_FLOW);
+            g2.setStroke(new BasicStroke(4f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            drawArrow(g2,p1,p2,NODE_R,true);
         }
         g2.setStroke(def);
 
-        // ── nodes ─────────────────────────────────────────────────────────────
-        List<Integer> keyList = new ArrayList<>(nodes.keySet());
+        // nodes
         for (int nodeId : keyList) {
-            Point p = nodePixels.get(nodeId);
+            Point p=nodePixels.get(nodeId);
             if (p==null) continue;
-            int cx=p.x, cy=p.y, bx=cx-nodeW/2, by=cy-nodeH/2;
-            boolean isDG = dgNodeIds.contains(nodeId);
-            boolean isST = storageNodeIds.contains(nodeId);
-
-            Color base = isDG ? new Color(79,130,220) : isST ? new Color(46,162,100) : Color.RED;
-            Color top  = isDG ? new Color(130,175,255): isST ? new Color(90,210,145) : Color.PINK;
+            boolean isDG=dgNodeIds.contains(nodeId);
+            boolean isST=storageNodeIds.contains(nodeId);
+            boolean isRelay=relayNodes.contains(nodeId);
+            Color fill =isDG?COL_DG :isST?COL_ST :COL_EDGE;
+            Color light=isDG?COL_DG_LIGHT:isST?COL_ST_LIGHT:COL_EDGE;
 
             // shadow
-            g2.setColor(new Color(0,0,0,50));
-            g2.fillRoundRect(bx+4, by+5, nodeW, nodeH, 14, 14);
+            g2.setColor(new Color(0,0,0,30));
+            g2.fillOval(p.x-NODE_R+3,p.y-NODE_R+3,NODE_R*2,NODE_R*2);
 
-            // gradient fill
-            GradientPaint gp = new GradientPaint(cx, by, top, cx, by+nodeH, base);
-            g2.setPaint(gp);
-            g2.fillRoundRect(bx, by, nodeW, nodeH, 14, 14);
+            // radial gradient fill
+            RadialGradientPaint rgp=new RadialGradientPaint(
+                new Point(p.x-NODE_R/3,p.y-NODE_R/3),NODE_R*2,
+                new float[]{0f,1f},new Color[]{light,fill});
+            g2.setPaint(rgp);
+            g2.fillOval(p.x-NODE_R,p.y-NODE_R,NODE_R*2,NODE_R*2);
             g2.setPaint(null);
 
             // border
-            g2.setColor(dragNodeId==nodeId ? Color.YELLOW : base.darker());
-            g2.setStroke(new BasicStroke(dragNodeId==nodeId ? 2.5f : 1.5f));
-            g2.drawRoundRect(bx, by, nodeW, nodeH, 14, 14);
+            g2.setColor(dragNodeId==nodeId?Color.YELLOW:fill.darker());
+            g2.setStroke(new BasicStroke(dragNodeId==nodeId?2.5f:1.8f));
+            g2.drawOval(p.x-NODE_R,p.y-NODE_R,NODE_R*2,NODE_R*2);
+            if(isRelay){
+                g2.setColor(COL_RELAY);
+                g2.setStroke(new BasicStroke(2.2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,10f,new float[]{5f,4f},0f));
+                g2.drawOval(p.x-NODE_R-4,p.y-NODE_R-4,NODE_R*2+8,NODE_R*2+8);
+            }
             g2.setStroke(def);
 
-            // header bar
-            g2.setColor(new Color(0,0,0,40));
-            g2.fillRoundRect(bx, by, nodeW, 20, 14, 14);
-            g2.fillRect(bx, by+10, nodeW, 10);
-
-            // text
+            // ── text inside node ───────────────────────────────────────────
             g2.setColor(Color.WHITE);
-            String prefix = isDG ? "DG" : isST ? "ST" : "N";
-            g2.setFont(new Font("SansSerif", Font.BOLD, 12));
-            drawCentered(g2, prefix+" "+nodeId, cx, by+15);
 
-            g2.setColor(new Color(255,255,255,200));
-            g2.drawLine(bx+6, by+21, bx+nodeW-6, by+21);
+            // header line: "DG 9" or "ST 3"
+            String prefix=isDG?"DG":isST?"ST":"N";
+            if(isRelay) prefix += "R";
+            g2.setFont(new Font("SansSerif",Font.BOLD,12));
+            drawCentered(g2,prefix+" "+nodeId,p.x,p.y-NODE_R+16);
 
+            // divider
+            g2.setColor(new Color(255,255,255,80));
+            g2.drawLine(p.x-NODE_R+8,p.y-NODE_R+19,p.x+NODE_R-8,p.y-NODE_R+19);
             g2.setColor(Color.WHITE);
-            g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
+
+            g2.setFont(new Font("SansSerif",Font.BOLD,9));
             if (isDG) {
-                int ly = by+33;
-                if (nodePriority.containsKey(nodeId))   { drawCentered(g2,"v="+nodePriority.get(nodeId),cx,ly);   ly+=13; }
-                if (nodePacketSize.containsKey(nodeId))  { drawCentered(g2,"sz="+nodePacketSize.get(nodeId),cx,ly); ly+=13; }
-                if (nodePackets.containsKey(nodeId))     { drawCentered(g2,"d="+nodePackets.get(nodeId),cx,ly);     ly+=13; }
-                if (nodes.containsKey(nodeId)) {
-                    g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
-                    g2.setColor(new Color(255,255,255,180));
-                    drawCentered(g2, String.format("(%.1f, %.1f)",
-                        nodes.get(nodeId).getxAxis(), nodes.get(nodeId).getyAxis()), cx, ly);
-                }
+                int ly=p.y-NODE_R+30;
+                if (nodePriority.containsKey(nodeId))
+                    { drawCentered(g2,"v="+nodePriority.get(nodeId),p.x,ly); ly+=11; }
+                if (nodePacketSize.containsKey(nodeId))
+                    { drawCentered(g2,"sz="+nodePacketSize.get(nodeId),p.x,ly); ly+=11; }
+                if (nodePackets.containsKey(nodeId))
+                    { drawCentered(g2,"d="+nodePackets.get(nodeId),p.x,ly); ly+=11; }
+                if (nodeEnergy.containsKey(nodeId))
+                    drawCentered(g2,"E="+nodeEnergy.get(nodeId),p.x,ly);
             } else if (isST) {
-                int ly = by+38;
-                if (nodeStorageCap.containsKey(nodeId)) { drawCentered(g2,"cap="+nodeStorageCap.get(nodeId),cx,ly); ly+=13; }
-                if (nodes.containsKey(nodeId)) {
-                    g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
-                    g2.setColor(new Color(255,255,255,180));
-                    drawCentered(g2, String.format("(%.1f, %.1f)",
-                        nodes.get(nodeId).getxAxis(), nodes.get(nodeId).getyAxis()), cx, ly);
-                }
+                int ly=p.y-NODE_R+33;
+                if (nodeStorageCap.containsKey(nodeId))
+                    { drawCentered(g2,"cap="+nodeStorageCap.get(nodeId),p.x,ly); ly+=12; }
+                if (nodeEnergy.containsKey(nodeId))
+                    drawCentered(g2,"E="+nodeEnergy.get(nodeId),p.x,ly);
+            } else {
+                int ly=p.y-NODE_R+36;
+                if (nodeEnergy.containsKey(nodeId))
+                    { drawCentered(g2,"E="+nodeEnergy.get(nodeId),p.x,ly); ly+=12; }
+                if (isRelay)
+                    drawCentered(g2,"relay",p.x,ly);
+            }
+
+            // (x,y) coords at bottom
+            if (nodes.containsKey(nodeId)) {
+                g2.setFont(new Font("SansSerif",Font.PLAIN,9));
+                g2.setColor(new Color(255,255,255,180));
+                drawCentered(g2,
+                    String.format("(%.0f,%.0f)",
+                        nodes.get(nodeId).getxAxis(),
+                        nodes.get(nodeId).getyAxis()),
+                    p.x, p.y+NODE_R-5);
             }
         }
 
-        // ── axis labels ───────────────────────────────────────────────────────
-        g2.setColor(new Color(50,50,50));
-        g2.setFont(new Font("SansSerif", Font.BOLD, 13));
-        FontMetrics fmAx = g2.getFontMetrics();
-        String xLbl = "X Position (m)";
-        g2.drawString(xLbl, scaling+gaw/2-fmAx.stringWidth(xLbl)/2, getHeight()-8);
-
-        Graphics2D g2r = (Graphics2D) g2.create();
-        g2r.setFont(new Font("SansSerif", Font.BOLD, 13));
+        // axis labels
+        g2.setColor(COL_TEXT);
+        g2.setFont(new Font("SansSerif",Font.BOLD,13));
+        FontMetrics fmAx=g2.getFontMetrics();
+        String xLbl="X Position (m)";
+        g2.drawString(xLbl,scaling+gaw/2-fmAx.stringWidth(xLbl)/2,getHeight()-8);
+        Graphics2D g2r=(Graphics2D)g2.create();
+        g2r.setFont(new Font("SansSerif",Font.BOLD,13));
         g2r.rotate(-Math.PI/2);
-        String yLbl = "Y Position (m)";
-        FontMetrics fmY = g2r.getFontMetrics();
-        g2r.drawString(yLbl, -(scaling+gah/2+fmY.stringWidth(yLbl)/2), 16);
+        String yLbl="Y Position (m)";
+        FontMetrics fmY=g2r.getFontMetrics();
+        g2r.drawString(yLbl,-(scaling+gah/2+fmY.stringWidth(yLbl)/2),16);
         g2r.dispose();
 
-        // ── legend (outside graph, right side) ────────────────────────────────
-        drawLegend(g2, def);
+        drawLegend(g2,def,W,H);
     }
 
-    private void drawCentered(Graphics2D g2, String s, int cx, int y) {
-        FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(s, cx-fm.stringWidth(s)/2, y);
+    private void drawArrow(Graphics2D g2,Point p1,Point p2,int r,boolean head){
+        double dx=p2.x-p1.x,dy=p2.y-p1.y;
+        double len=Math.sqrt(dx*dx+dy*dy); if(len<2) return;
+        double ux=dx/len,uy=dy/len;
+        int x1=(int)(p1.x+ux*r),y1=(int)(p1.y+uy*r);
+        int x2=(int)(p2.x-ux*(r+4)),y2=(int)(p2.y-uy*(r+4));
+        g2.drawLine(x1,y1,x2,y2);
+        if(head){int aw=10,ah=5;
+            g2.fillPolygon(
+                new int[]{x2,(int)(x2-aw*ux+ah*uy),(int)(x2-aw*ux-ah*uy)},
+                new int[]{y2,(int)(y2-aw*uy-ah*ux),(int)(y2-aw*uy+ah*ux)},3);}
     }
 
-    private void drawLegend(Graphics2D g2, Stroke def) {
-        int bw=16, bh=16, gap=10, padX=14, padY=12;
-        String[] labels = {
-            "DG (source)  - v, sz, d, (x,y)",
-            "Storage (sink)  - cap, (x,y)",
-            "GOA flow path",
-            "Drag nodes to rearrange"
-        };
-        Color[] colors = {
-            new Color(79,130,220), new Color(46,162,100),
-            new Color(230,100,0),  new Color(80,80,80)
-        };
+    private void drawCentered(Graphics2D g2,String s,int cx,int y){
+        FontMetrics fm=g2.getFontMetrics();
+        g2.drawString(s,cx-fm.stringWidth(s)/2,y);
+    }
 
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        FontMetrics fm = g2.getFontMetrics();
-        int maxW = 0;
-        for (String s : labels) maxW = Math.max(maxW, fm.stringWidth(s));
-        int boxW = maxW + bw + padX*2 + 10;
-        int boxH = labels.length*(bh+gap) + padY*2;
+    private Set<Integer> getRelayNodes(){
+        Map<Integer,Integer> deg=new HashMap<>();
+        for(int[] fe:flowEdges){
+            if(fe==null||fe.length<2) continue;
+            deg.merge(fe[0],1,Integer::sum);
+            deg.merge(fe[1],1,Integer::sum);
+        }
+        Set<Integer> relay=new HashSet<>();
+        for(Map.Entry<Integer,Integer> e:deg.entrySet())
+            if(e.getValue()>=2) relay.add(e.getKey());
+        return relay;
+    }
 
-        // position: right strip, vertically centered
-        int rx = getWidth() - legendW/2 - boxW/2;
-        int ry = (getHeight()-boxH)/2;
-
-        // shadow
-        g2.setColor(new Color(0,0,0,40));
-        g2.fillRoundRect(rx+3, ry+3, boxW, boxH, 12, 12);
-        // white background
-        g2.setColor(new Color(255,255,255,250));
-        g2.fillRoundRect(rx, ry, boxW, boxH, 12, 12);
-        // border
-        g2.setColor(new Color(180,180,180));
-        g2.setStroke(new BasicStroke(1.2f));
-        g2.drawRoundRect(rx, ry, boxW, boxH, 12, 12);
-
-        for (int i = 0; i < labels.length; i++) {
-            int cy = ry+padY+i*(bh+gap);
-            int ix = rx+padX;
-
-            if (i==0||i==1) {
-                g2.setColor(colors[i]);
-                g2.fillRoundRect(ix, cy, bw, bh, 4, 4);
-                g2.setColor(colors[i].darker());
-                g2.setStroke(new BasicStroke(1f));
-                g2.drawRoundRect(ix, cy, bw, bh, 4, 4);
-            } else if (i==2) {
-                // glow swatch
-                g2.setColor(new Color(255,165,0,80));
-                g2.setStroke(new BasicStroke(8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.drawLine(ix, cy+bh/2, ix+bw, cy+bh/2);
-                g2.setColor(colors[i]);
-                g2.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.drawLine(ix, cy+bh/2, ix+bw, cy+bh/2);
+    private void drawLegend(Graphics2D g2,Stroke def,int W,int H){
+        String[] lbls={"DG (source)  - v, sz, d, E","Storage node  - cap, E",
+                        "BSN edge","GOA flow path","Relay-capable node ring","Drag to rearrange"};
+        Color[] cols={COL_DG,COL_ST,COL_EDGE,COL_FLOW,COL_RELAY,new Color(80,80,80)};
+        g2.setFont(new Font("SansSerif",Font.PLAIN,12));
+        FontMetrics fm=g2.getFontMetrics();
+        int maxW=0; for(String s:lbls) maxW=Math.max(maxW,fm.stringWidth(s));
+        int bw=16,bh=16,gap=10,px=14,py=12;
+        int boxW=maxW+bw+px*2+10,boxH=lbls.length*(bh+gap)+py*2;
+        int rx=W-boxW-12,ry=(H-boxH)/2;
+        g2.setColor(new Color(0,0,0,30));       g2.fillRoundRect(rx+3,ry+3,boxW,boxH,12,12);
+        g2.setColor(new Color(255,255,255,245)); g2.fillRoundRect(rx,ry,boxW,boxH,12,12);
+        g2.setColor(new Color(180,160,210));
+        g2.setStroke(new BasicStroke(1.2f));     g2.drawRoundRect(rx,ry,boxW,boxH,12,12);
+        for(int i=0;i<lbls.length;i++){
+            int cy=ry+py+i*(bh+gap),ix=rx+px;
+            if(i<2){
+                RadialGradientPaint rgp=new RadialGradientPaint(
+                    new Point(ix+bw/2-2,cy+bh/2-2),bw,new float[]{0f,1f},
+                    new Color[]{cols[i].brighter(),cols[i]});
+                g2.setPaint(rgp); g2.fillOval(ix,cy,bw,bh); g2.setPaint(null);
+                g2.setColor(cols[i].darker()); g2.setStroke(new BasicStroke(1f));
+                g2.drawOval(ix,cy,bw,bh);
+            } else if(i==2){
+                g2.setColor(cols[i]); g2.setStroke(new BasicStroke(2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                g2.drawLine(ix,cy+bh/2,ix+bw,cy+bh/2); g2.setStroke(def);
+            } else if(i==3){
+                g2.setColor(new Color(255,140,40,80));
+                g2.setStroke(new BasicStroke(8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                g2.drawLine(ix,cy+bh/2,ix+bw,cy+bh/2);
+                g2.setColor(cols[i]);
+                g2.setStroke(new BasicStroke(2.5f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                g2.drawLine(ix,cy+bh/2,ix+bw,cy+bh/2); g2.setStroke(def);
+            } else if(i==4){
+                g2.setColor(cols[i]);
+                g2.setStroke(new BasicStroke(2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,10f,new float[]{5f,4f},0f));
+                g2.drawOval(ix,cy,bw,bh);
                 g2.setStroke(def);
             } else {
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 15));
-                g2.setColor(new Color(80,80,80));
-                g2.drawString("\u2725", ix, cy+bh-1);
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+                g2.setFont(new Font("SansSerif",Font.PLAIN,15));
+                g2.setColor(cols[i]); g2.drawString("\u2725",ix,cy+bh-1);
+                g2.setFont(new Font("SansSerif",Font.PLAIN,12));
             }
-
-            g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
-            g2.setColor(new Color(30,30,30));
-            g2.drawString(labels[i], ix+bw+8, cy+bh-2);
+            g2.setColor(COL_TEXT); g2.setFont(new Font("SansSerif",Font.PLAIN,12));
+            g2.drawString(lbls[i],ix+bw+8,cy+bh-2);
         }
     }
 
-    // ── Runnable ──────────────────────────────────────────────────────────────
     @Override
-    public void run() {
+    public void run(){
         attachMouseListeners();
-        JFrame frame = new JFrame("Sensor Network Graph - "+algoTitle);
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setPreferredSize(new Dimension(1600, 950));
-
-        JLabel banner = new JLabel(algoTitle, SwingConstants.CENTER);
-        banner.setFont(new Font("SansSerif", Font.BOLD, 18));
+        JFrame frame=new JFrame("Sensor Network - "+algoTitle);
+        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.setPreferredSize(new Dimension(1550,900));
+        JLabel banner=new JLabel(algoTitle,SwingConstants.CENTER);
+        banner.setFont(new Font("SansSerif",Font.BOLD,18));
         banner.setOpaque(true);
-        banner.setBackground(new Color(30,30,30));
+        banner.setBackground(new Color(60,20,120));
         banner.setForeground(Color.WHITE);
         banner.setBorder(BorderFactory.createEmptyBorder(10,0,10,0));
-
         frame.getContentPane().setLayout(new BorderLayout());
-        frame.getContentPane().add(banner, BorderLayout.NORTH);
-        frame.getContentPane().add(this,   BorderLayout.CENTER);
+        frame.getContentPane().add(banner,BorderLayout.NORTH);
+        frame.getContentPane().add(this,BorderLayout.CENTER);
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
