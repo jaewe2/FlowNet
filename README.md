@@ -17,9 +17,9 @@ In the original paper, all data packets are assumed to be unit-sized, allowing A
 
 | File | Description |
 |------|-------------|
-| `SensorStuff.java` | Main class — BFN construction, all three algorithms, scaling loop, visualization wiring |
-| `SensorNetworkGraph.java` | Physical BSN graph visualization (Swing) — draggable nodes, flow paths highlighted |
-| `BFNGraph.java` | BFN flow network visualization (Swing) — split nodes i'/i'', super source/sink, edge labels, pannable canvas |
+| `SensorStuff.java` | Main class — BFN construction, all three algorithms, scaling loop, visualization wiring, connectivity enforcement |
+| `SensorNetworkGraph.java` | Physical BSN graph visualization (Swing) — draggable nodes, fixed initial positions, flow paths highlighted |
+| `BFNGraph.java` | BFN flow network visualization (Swing) — split nodes i'/i'', draggable/bendable edges, labels follow edges, pannable canvas |
 | `Axis.java` | Simple x/y coordinate holder for graph nodes |
 
 ---
@@ -237,6 +237,8 @@ Each trial independently varies three factors to ensure GOA and Density GOA are 
 
 **Transmission range jitter** — each trial applies a ±25% random multiplier to the base TR (`trialTR = TR × U[0.75, 1.25]`), varying graph density from sparse to dense. The actual TR used is printed per trial line in the scaling output.
 
+**Connectivity guaranteed** — before any trial runs, `buildConnectedGraph()` regenerates node positions and edges up to 1000 times until the graph is fully connected (verified by BFS from node 0). This satisfies Professor Tang's connectivity requirement: packets must be routable from any DG to any storage node.
+
 ---
 
 ## Visualization
@@ -246,17 +248,26 @@ Each visual run opens 4 graph windows:
 ### Physical BSN Graph (`SensorNetworkGraph`)
 - **Purple nodes** = Data Generators (DGs) — shows `v`, `sz`, `d`, `E`, `(x,y)`
 - **Green nodes** = Storage nodes — shows `cap`, `E`, `(x,y)`
-- **Gray edges** = BSN communication links
+- **Blue/purple edges** = BSN communication links
 - **Orange glow edges** = Flow paths chosen by the algorithm
 - **Yellow dashed ring** = Relay-capable node
-- Nodes are **draggable** to untangle overlapping layouts
+- Nodes are **draggable** to rearrange the layout
+- Nodes render at their true physical `(x,y)` coordinates on first open
 
 ### BFN Flow Network (`BFNGraph`)
 - Each BSN node shown as split pair `i'` (in-node) and `i''` (out-node)
 - Super source `s` on the left, super sink `t` on the right
-- Internal edge `i'→i''` labeled with energy `Eᵢ`
+- **Edge labels:**
+  - `s → i'` edges: labeled `d=X` (packets) and `E=X` (DG energy)
+  - `i' → i"` edges: labeled `E=X` (node energy budget)
+  - `u" → v'` routing edges: labeled `inf` (dashed, 70% opacity)
+  - `j" → t` sink edges: labeled `m=X`, `E=X`, `(ST N)` — one per storage node
 - **Orange glow** on edges carrying active flow
-- Click and **drag to pan** the network
+- **All labels attach to and move with their edge** when bent
+- **Drag any edge line** to bend it — grab anywhere along the line, not just the midpoint
+- **Drag the canvas background** to pan the entire view
+- Labels stack cleanly with no overlap for multiple DGs or storage nodes
+- Window height scales automatically with node count so no nodes are clipped
 
 ---
 
@@ -306,5 +317,3 @@ If no bottleneck exists, the algorithm is skipped:
 
 Rivera, G. & Tang, B. (2024). *Priority-Based Data Preservation in Challenging Environments: A Maximum Weighted Flow Approach.* California State University Dominguez Hills.  
 Paper: https://csc.csudh.edu/btang/papers/priority_journal.pdf
-
-
