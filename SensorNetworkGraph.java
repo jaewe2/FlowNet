@@ -15,34 +15,34 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
     private static final Color COL_DG_LIGHT  = new Color(200, 165, 240);
     private static final Color COL_ST        = new Color(20,  150, 80);
     private static final Color COL_ST_LIGHT  = new Color(120, 210, 160);
-    private static final Color COL_EDGE      = new Color(140, 120, 180);
+    private static final Color COL_EDGE      = new Color(100, 80,  160);   // darker, more visible
     private static final Color COL_FLOW      = new Color(220, 80,  20);
     private static final Color COL_FLOW_GLOW = new Color(255, 140, 40,  80);
     private static final Color COL_TEXT      = new Color(30,  15,  60);
     private static final Color COL_RELAY     = new Color(245, 185, 35);
 
-    private static final int NODE_R   = 34;
+    private static final int NODE_R    = 42;  // large enough to fit 4 lines of text cleanly
     private static final int gridCount = 10;
     private static final int legendW   = 300;
 
-    private Map<Integer, Axis>         nodes;
-    private double                     graphWidth, graphHeight;
-    private int                        scaling = 60;
-    private boolean                    connected;
-    private Map<Integer,Set<Integer>>  adjList;
-    private String                     algoTitle = "GOA";
+    private Map<Integer, Axis>        nodes;
+    private double                    graphWidth, graphHeight;
+    private int                       scaling = 60;
+    private boolean                   connected;
+    private Map<Integer,Set<Integer>> adjList;
+    private String                    algoTitle = "GOA";
 
-    private Set<Integer>          dgNodeIds      = new HashSet<>();
-    private Set<Integer>          storageNodeIds = new HashSet<>();
-    private List<int[]>           flowEdges      = new ArrayList<>();
-    private Map<Integer,Integer>  nodePriority   = new HashMap<>();
-    private Map<Integer,Integer>  nodePacketSize = new HashMap<>();
-    private Map<Integer,Integer>  nodePackets    = new HashMap<>();
-    private Map<Integer,Integer>  nodeStorageCap = new HashMap<>();
-    private Map<Integer,Integer>  nodeEnergy     = new HashMap<>();
+    private Set<Integer>         dgNodeIds      = new HashSet<>();
+    private Set<Integer>         storageNodeIds = new HashSet<>();
+    private List<int[]>          flowEdges      = new ArrayList<>();
+    private Map<Integer,Integer> nodePriority   = new HashMap<>();
+    private Map<Integer,Integer> nodePacketSize = new HashMap<>();
+    private Map<Integer,Integer> nodePackets    = new HashMap<>();
+    private Map<Integer,Integer> nodeStorageCap = new HashMap<>();
+    private Map<Integer,Integer> nodeEnergy     = new HashMap<>();
 
-    private Map<Integer,Point> nodePixels  = new HashMap<>();
-    private int  dragNodeId = -1, dragOffsetX, dragOffsetY;
+    private Map<Integer,Point> nodePixels = new HashMap<>();
+    private int dragNodeId = -1, dragOffsetX, dragOffsetY;
     private boolean pixelsInit = false;
 
     // ── setters ───────────────────────────────────────────────────────────────
@@ -85,29 +85,14 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
     }
 
     private void spreadNodes() {
-        int min = NODE_R*2+20;
+        // Only clamp nodes to stay within the graph area boundary —
+        // no overlap-pushing. Nodes are fixed at their true (x,y) coordinates
+        // on first render and only move when the user drags them.
         int xMin=scaling+NODE_R+4, xMax=scaling+graphAreaWidth()-NODE_R-4;
         int yMin=scaling+NODE_R+4, yMax=scaling+graphAreaHeight()-NODE_R-4;
-        List<Integer> ks = new ArrayList<>(nodePixels.keySet());
         for (Point p : nodePixels.values()) {
             p.x=Math.max(xMin,Math.min(xMax,p.x));
             p.y=Math.max(yMin,Math.min(yMax,p.y));
-        }
-        for (int it=0; it<300; it++) {
-            boolean mv=false;
-            for (int i=0;i<ks.size();i++) for (int j=i+1;j<ks.size();j++) {
-                Point a=nodePixels.get(ks.get(i)), b=nodePixels.get(ks.get(j));
-                int dx=b.x-a.x, dy=b.y-a.y;
-                int ox=min-Math.abs(dx), oy=min-Math.abs(dy);
-                if (ox>0&&oy>0) {
-                    if (ox<oy){int p=ox/2+1;a.x-=(dx>=0?p:-p);b.x+=(dx>=0?p:-p);}
-                    else       {int p=oy/2+1;a.y-=(dy>=0?p:-p);b.y+=(dy>=0?p:-p);}
-                    a.x=Math.max(xMin,Math.min(xMax,a.x)); a.y=Math.max(yMin,Math.min(yMax,a.y));
-                    b.x=Math.max(xMin,Math.min(xMax,b.x)); b.y=Math.max(yMin,Math.min(yMax,b.y));
-                    mv=true;
-                }
-            }
-            if (!mv) break;
         }
     }
 
@@ -124,7 +109,10 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
             @Override public void mousePressed(MouseEvent e) {
                 if (!pixelsInit) initPixels();
                 dragNodeId=hitNode(e.getX(),e.getY());
-                if (dragNodeId!=-1){Point p=nodePixels.get(dragNodeId);dragOffsetX=e.getX()-p.x;dragOffsetY=e.getY()-p.y;}
+                if (dragNodeId!=-1){
+                    Point p=nodePixels.get(dragNodeId);
+                    dragOffsetX=e.getX()-p.x; dragOffsetY=e.getY()-p.y;
+                }
             }
             @Override public void mouseReleased(MouseEvent e){dragNodeId=-1;}
         });
@@ -188,29 +176,35 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
         List<Integer> keyList=new ArrayList<>(nodes.keySet());
         Set<Integer> relayNodes=getRelayNodes();
 
-        // regular edges
+        // ── BSN edges: use adjacency list keyed on 1-based node IDs ──────────
+        // adjList keys and values are 1-based (set in launchGraph via u+1/v+1),
+        // matching the nodePixels map which is also 1-based. This ensures the
+        // sensor graph edges exactly mirror the BFN routing edges.
         Set<String> drawn=new HashSet<>();
         g2.setStroke(new BasicStroke(2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
         for (int nd : adjList.keySet()) {
-            if (adjList.get(nd)==null) continue;
-            for (int adj : adjList.get(nd)) {
+            Set<Integer> nbrs = adjList.get(nd);
+            if (nbrs==null) continue;
+            for (int adj : nbrs) {
+                // deduplicate undirected edges
                 String key=Math.min(nd,adj)+"-"+Math.max(nd,adj);
                 if (drawn.contains(key)) continue;
                 drawn.add(key);
-                Point p1=nodePixels.get(nd),p2=nodePixels.get(adj);
+                Point p1=nodePixels.get(nd), p2=nodePixels.get(adj);
                 if (p1==null||p2==null) continue;
                 g2.setColor(COL_EDGE);
-                drawArrow(g2,p1,p2,NODE_R,false);
+                drawLine(g2,p1,p2,NODE_R);
             }
         }
 
         // flow edges
         for (int[] fe : flowEdges) {
+            // fe[0] and fe[1] are already 1-based (set in launchGraph)
             Point p1=nodePixels.get(fe[0]),p2=nodePixels.get(fe[1]);
             if (p1==null||p2==null) continue;
             g2.setColor(COL_FLOW_GLOW);
             g2.setStroke(new BasicStroke(16f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
-            drawArrow(g2,p1,p2,NODE_R,false);
+            drawLine(g2,p1,p2,NODE_R);
             g2.setColor(COL_FLOW);
             g2.setStroke(new BasicStroke(4f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
             drawArrow(g2,p1,p2,NODE_R,true);
@@ -243,9 +237,10 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
             g2.setColor(dragNodeId==nodeId?Color.YELLOW:fill.darker());
             g2.setStroke(new BasicStroke(dragNodeId==nodeId?2.5f:1.8f));
             g2.drawOval(p.x-NODE_R,p.y-NODE_R,NODE_R*2,NODE_R*2);
-            if(isRelay){
+            if (isRelay) {
                 g2.setColor(COL_RELAY);
-                g2.setStroke(new BasicStroke(2.2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,10f,new float[]{5f,4f},0f));
+                g2.setStroke(new BasicStroke(2.2f,BasicStroke.CAP_ROUND,
+                    BasicStroke.JOIN_ROUND,10f,new float[]{5f,4f},0f));
                 g2.drawOval(p.x-NODE_R-4,p.y-NODE_R-4,NODE_R*2+8,NODE_R*2+8);
             }
             g2.setStroke(def);
@@ -253,7 +248,7 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
             // ── text inside node ───────────────────────────────────────────
             g2.setColor(Color.WHITE);
 
-            // header line: "DG 9" or "ST 3"
+            // header: "DG 9" or "ST 3" — uses 1-based nodeId
             String prefix=isDG?"DG":isST?"ST":"N";
             if(isRelay) prefix += "R";
             g2.setFont(new Font("SansSerif",Font.BOLD,12));
@@ -285,8 +280,7 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
                 int ly=p.y-NODE_R+36;
                 if (nodeEnergy.containsKey(nodeId))
                     { drawCentered(g2,"E="+nodeEnergy.get(nodeId),p.x,ly); ly+=12; }
-                if (isRelay)
-                    drawCentered(g2,"relay",p.x,ly);
+                if (isRelay) drawCentered(g2,"relay",p.x,ly);
             }
 
             // (x,y) coords at bottom
@@ -318,25 +312,40 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
         drawLegend(g2,def,W,H);
     }
 
-    private void drawArrow(Graphics2D g2,Point p1,Point p2,int r,boolean head){
+    // ── draw helpers ──────────────────────────────────────────────────────────
+
+    /** Straight line between node borders (no arrowhead) — for BSN edges. */
+    private void drawLine(Graphics2D g2, Point p1, Point p2, int r) {
+        double dx=p2.x-p1.x, dy=p2.y-p1.y;
+        double len=Math.sqrt(dx*dx+dy*dy); if(len<2) return;
+        double ux=dx/len, uy=dy/len;
+        int x1=(int)(p1.x+ux*r), y1=(int)(p1.y+uy*r);
+        int x2=(int)(p2.x-ux*r), y2=(int)(p2.y-uy*r);
+        g2.drawLine(x1,y1,x2,y2);
+    }
+
+    /** Straight arrow — for flow edges. */
+    private void drawArrow(Graphics2D g2, Point p1, Point p2, int r, boolean head) {
         double dx=p2.x-p1.x,dy=p2.y-p1.y;
         double len=Math.sqrt(dx*dx+dy*dy); if(len<2) return;
         double ux=dx/len,uy=dy/len;
         int x1=(int)(p1.x+ux*r),y1=(int)(p1.y+uy*r);
         int x2=(int)(p2.x-ux*(r+4)),y2=(int)(p2.y-uy*(r+4));
         g2.drawLine(x1,y1,x2,y2);
-        if(head){int aw=10,ah=5;
+        if(head){
+            int aw=10,ah=5;
             g2.fillPolygon(
                 new int[]{x2,(int)(x2-aw*ux+ah*uy),(int)(x2-aw*ux-ah*uy)},
-                new int[]{y2,(int)(y2-aw*uy-ah*ux),(int)(y2-aw*uy+ah*ux)},3);}
+                new int[]{y2,(int)(y2-aw*uy-ah*ux),(int)(y2-aw*uy+ah*ux)},3);
+        }
     }
 
-    private void drawCentered(Graphics2D g2,String s,int cx,int y){
+    private void drawCentered(Graphics2D g2, String s, int cx, int y) {
         FontMetrics fm=g2.getFontMetrics();
         g2.drawString(s,cx-fm.stringWidth(s)/2,y);
     }
 
-    private Set<Integer> getRelayNodes(){
+    private Set<Integer> getRelayNodes() {
         Map<Integer,Integer> deg=new HashMap<>();
         for(int[] fe:flowEdges){
             if(fe==null||fe.length<2) continue;
@@ -349,7 +358,7 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
         return relay;
     }
 
-    private void drawLegend(Graphics2D g2,Stroke def,int W,int H){
+    private void drawLegend(Graphics2D g2, Stroke def, int W, int H) {
         String[] lbls={"DG (source)  - v, sz, d, E","Storage node  - cap, E",
                         "BSN edge","GOA flow path","Relay-capable node ring","Drag to rearrange"};
         Color[] cols={COL_DG,COL_ST,COL_EDGE,COL_FLOW,COL_RELAY,new Color(80,80,80)};
@@ -385,8 +394,7 @@ public class SensorNetworkGraph extends JPanel implements Runnable {
             } else if(i==4){
                 g2.setColor(cols[i]);
                 g2.setStroke(new BasicStroke(2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,10f,new float[]{5f,4f},0f));
-                g2.drawOval(ix,cy,bw,bh);
-                g2.setStroke(def);
+                g2.drawOval(ix,cy,bw,bh); g2.setStroke(def);
             } else {
                 g2.setFont(new Font("SansSerif",Font.PLAIN,15));
                 g2.setColor(cols[i]); g2.drawString("\u2725",ix,cy+bh-1);

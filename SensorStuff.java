@@ -127,6 +127,61 @@ public class SensorStuff {
     }
 
     // =========================================================================
+    //  CONNECTIVITY CHECK
+    //
+    //  Returns true if the graph is fully connected — i.e. every node can
+    //  reach every other node. Required by the data preservation problem:
+    //  packets must be routable from any DG to any storage node.
+    //  Uses a single BFS from node 0 and checks that all nodes are visited.
+    // =========================================================================
+
+    private boolean isFullyConnected(int numNodes) {
+        boolean[] visited = new boolean[numNodes];
+        List<Integer> comp = buildBFS(adjM != null ? adjM.getAdjM() : adjList, 0, visited);
+        return comp.size() == numNodes;
+    }
+
+    // =========================================================================
+    //  CONNECTED GRAPH GENERATION
+    //
+    //  Regenerates node positions and edges until the graph is fully connected,
+    //  satisfying Professor Tang's connectivity requirement. Attempts up to
+    //  1000 times; prints a warning if no connected graph could be produced
+    //  (typically caused by TR being too small relative to the field size).
+    //
+    //  For the visual run: uses the fixed base TR.
+    //  For scaling trials: also re-applies TR jitter each attempt so the
+    //  jitter still varies across trials while guaranteeing connectivity.
+    // =========================================================================
+
+    private int buildConnectedGraph(int numNodes, int widthX, int lenY, int baseTR, Random rand, boolean applyJitter) {
+        int trialTR = baseTR;
+        int attempts = 0;
+        do {
+            // reset adjacency structure before regenerating edges
+            if (adjM != null) {
+                adjM = new AdjacentMatrix(numNodes);
+            } else {
+                adjList = new ArrayList<>();
+                for (int i = 0; i < numNodes; i++) adjList.add(new LinkedList<>());
+            }
+            randomNodes(widthX, lenY);
+            if (applyJitter) {
+                // per-trial TR jitter (75%–125% of base TR)
+                double trJitter = 0.75 + rand.nextDouble() * 0.5;
+                trialTR = (int)(baseTR * trJitter);
+            }
+            createE(trialTR);
+            attempts++;
+        } while (!isFullyConnected(numNodes) && attempts < 1000);
+
+        if (attempts >= 1000)
+            System.out.println("  Warning: could not generate a fully connected graph after 1000 attempts. " +
+                               "Try increasing TR or shrinking the field.");
+        return trialTR;
+    }
+
+    // =========================================================================
     // ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
     //  BSN-BASED FLOW NETWORK (BFN) — GRAPH TRANSFORMATION
     //
@@ -549,9 +604,8 @@ public class SensorStuff {
                         if (bsnU != bsnV) {
                             boolean exists = false;
                             for (int[] fe : goaFlowEdges)
-                                if ((fe[0]==bsnU&&fe[1]==bsnV)||
-                                    (fe[0]==bsnV&&fe[1]==bsnU))
-                                    { exists=true; break; }
+                                if (fe[0] == bsnU && fe[1] == bsnV)
+                                    { exists = true; break; }
                             if (!exists) goaFlowEdges.add(new int[]{bsnU, bsnV});
                         }
                     }
@@ -707,9 +761,8 @@ public class SensorStuff {
                         if (bsnU != bsnV) {
                             boolean exists = false;
                             for (int[] fe : goaFlowEdges)
-                                if ((fe[0]==bsnU&&fe[1]==bsnV)||
-                                    (fe[0]==bsnV&&fe[1]==bsnU))
-                                    { exists=true; break; }
+                                if (fe[0] == bsnU && fe[1] == bsnV)
+                                    { exists = true; break; }
                             if (!exists) goaFlowEdges.add(new int[]{bsnU, bsnV});
                         }
                     }
@@ -1039,9 +1092,8 @@ public class SensorStuff {
                         if (bsnU != bsnV) {
                             boolean exists = false;
                             for (int[] fe : flowEdgesOut)
-                                if ((fe[0]==bsnU&&fe[1]==bsnV)||
-                                    (fe[0]==bsnV&&fe[1]==bsnU))
-                                    { exists=true; break; }
+                                if (fe[0] == bsnU && fe[1] == bsnV)
+                                    { exists = true; break; }
                             if (!exists) flowEdgesOut.add(new int[]{bsnU, bsnV});
                         }
                     }
@@ -1066,7 +1118,12 @@ public class SensorStuff {
                           List<int[]>   goaFlowEdges,
                           String        algoTitle) {
         int n = nodeLoc.length;
-        int[] storageSlots = Arrays.copyOf(storageCapacity, storageCapacity.length);
+
+        int[] storageSlotsByNode = new int[n];
+        for (int j = 0; j < storageNodes.size(); j++) {
+            int st = storageNodes.get(j);
+            storageSlotsByNode[st] = storageCapacity[j];
+        }
 
         int[][] adjMatrix = new int[n][n];
         if (adjM != null) {
@@ -1081,7 +1138,7 @@ public class SensorStuff {
         panel.setAlgoTitle(algoTitle);
         panel.build(n, nodeEnergy,
                     new HashSet<>(dgNodes), storageNodes,
-                    nodeLoc, packetsPerNode, storageSlots,
+                    nodeLoc, packetsPerNode, storageSlotsByNode,
                     adjMatrix, goaFlowEdges);
         SwingUtilities.invokeLater(panel);
     }
@@ -1221,8 +1278,11 @@ public class SensorStuff {
         int visNodes = Math.max(2, kb.nextInt());
 
         SensorStuff visNet = new SensorStuff(visNodes, choice);
-        visNet.randomNodes(widthX, lenY);
-        visNet.createE(TR);
+
+        // regenerate until the visual run graph is fully connected —
+        // required by the data preservation problem (Prof. Tang's requirement)
+        visNet.buildConnectedGraph(visNodes, widthX, lenY, TR, rand, false);
+
         visNet.randomNodeEnergies(minE, maxE);
         visNet.randomDataPackets(minPkt, maxPkt);
         visNet.randomPacketSizes(minSz, maxSz);
@@ -1292,12 +1352,11 @@ public class SensorStuff {
             for (int t = 1; t <= trials; t++) {
 
                 SensorStuff net = new SensorStuff(numNodes, choice);
-                net.randomNodes(widthX, lenY);
 
-                // per-trial TR jitter (75%–125% of base TR)
-                double trJitter = 0.75 + rand.nextDouble() * 0.5;
-                int trialTR = (int)(TR * trJitter);
-                net.createE(trialTR);
+                // regenerate until fully connected, applying TR jitter each
+                // attempt so jitter still varies across trials while guaranteeing
+                // connectivity (per-trial TR jitter: 75%–125% of base TR)
+                int trialTR = net.buildConnectedGraph(numNodes, widthX, lenY, TR, rand, true);
 
                 net.randomNodeEnergies(minE, maxE);
                 net.randomDataPackets(minPkt, maxPkt);
