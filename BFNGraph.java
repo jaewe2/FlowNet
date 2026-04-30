@@ -18,6 +18,7 @@ public class BFNGraph extends JPanel implements Runnable {
     private static final Color COL_EDGE_INT  = new Color(100, 60,  180);
     private static final Color COL_EDGE_RT   = new Color(130, 100, 200);
     private static final Color COL_EDGE_ST   = new Color(60,  60,  100);
+<<<<<<< HEAD
     private static final Color COL_TEXT      = new Color(30,  15,  60);
 
     // ── flow colors — vary per algorithm (feature 5) ──────────────────────────
@@ -29,6 +30,12 @@ public class BFNGraph extends JPanel implements Runnable {
     private Color colFlow     = new Color(220, 80,  20);
     private Color colFlowGlow = new Color(255, 140, 40, 80);
 
+=======
+    private static final Color COL_FLOW      = new Color(220, 80,  20);
+    private static final Color COL_FLOW_GLOW = new Color(255, 140, 40, 80);
+    private static final Color COL_TEXT      = new Color(30,  15,  60);
+
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     // ── layout ────────────────────────────────────────────────────────────────
     private static final int NODE_R   = 20;
     private static final int PAD_TOP  = 100;
@@ -47,8 +54,12 @@ public class BFNGraph extends JPanel implements Runnable {
     private List<Integer> dgList     = new ArrayList<>();
     private Set<Integer>  storageSet = new HashSet<>();
     private int[]         packetsPerNode;
+<<<<<<< HEAD
     private int[]         storageSlots;       // original storage capacity per storage node
     private int[]         storageWaste;       // remaining (wasted) capacity after augmentation
+=======
+    private int[]         storageSlots;
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     private List<Integer> storageList;
     private int[][]       adjMatrix;
 
@@ -74,6 +85,7 @@ public class BFNGraph extends JPanel implements Runnable {
     private int  offsetX = 0, offsetY = 0, panDragX, panDragY;
     private boolean panning = false;
 
+<<<<<<< HEAD
     public void setAlgoTitle(String t) {
         algoTitle = t;
         // feature 5: set flow color based on algorithm name
@@ -92,6 +104,9 @@ public class BFNGraph extends JPanel implements Runnable {
             colFlowGlow = new Color(255, 140, 40, 80);
         }
     }
+=======
+    public void setAlgoTitle(String t) { algoTitle = t; }
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
     // ── build ─────────────────────────────────────────────────────────────────
     public void build(int n, int[] nodeEnergies,
@@ -99,6 +114,7 @@ public class BFNGraph extends JPanel implements Runnable {
                       double[][] nodeLoc,
                       int[] packetsPerNode, int[] storageSlots,
                       int[][] adjMatrix, List<int[]> goaFlowBSN) {
+<<<<<<< HEAD
         // overload without waste data — waste defaults to 0 for all storage nodes
         int[] noWaste = new int[storageList.size()];
         build(n, nodeEnergies, dgNodes, storageList, nodeLoc,
@@ -112,6 +128,8 @@ public class BFNGraph extends JPanel implements Runnable {
                       int[] packetsPerNode, int[] storageSlots,
                       int[] storageWaste,
                       int[][] adjMatrix, List<int[]> goaFlowBSN) {
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         this.n              = n;
         this.nodeEnergies   = nodeEnergies;
         this.dgSet          = new HashSet<>(dgNodes);
@@ -120,7 +138,10 @@ public class BFNGraph extends JPanel implements Runnable {
         this.storageSet     = new HashSet<>(storageList);
         this.packetsPerNode = packetsPerNode;
         this.storageSlots   = storageSlots;
+<<<<<<< HEAD
         this.storageWaste   = storageWaste;
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         this.storageList    = storageList;
         this.adjMatrix      = adjMatrix;
 
@@ -132,7 +153,11 @@ public class BFNGraph extends JPanel implements Runnable {
 
         buildNodeOrder();
         buildEdges(dgNodes, storageList, adjMatrix, packetsPerNode,
+<<<<<<< HEAD
                    storageSlots, storageWaste, goaFlowBSN);
+=======
+                   storageSlots, goaFlowBSN);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     }
 
     private void buildNodeOrder() {
@@ -149,10 +174,16 @@ public class BFNGraph extends JPanel implements Runnable {
 
     private void buildEdges(Set<Integer> dgNodes, List<Integer> storageList,
                             int[][] adjMatrix, int[] packetsPerNode,
+<<<<<<< HEAD
                             int[] storageSlots, int[] storageWaste,
                             List<int[]> goaFlowBSN) {
 
         // s → i'  capacity = d (packets per DG)
+=======
+                            int[] storageSlots, List<int[]> goaFlowBSN) {
+
+        // s → i'  capacity = d (packets per DG) — iterate in sorted order
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         for (int dg : dgList) {
             edges.add(new int[]{0, -1, 1, dg});
             edgeCaps.add("d=" + packetsPerNode[dg] + "\nE=" + nodeEnergies[dg]);
@@ -173,6 +204,7 @@ public class BFNGraph extends JPanel implements Runnable {
                 }
 
         // j" → t  capacity = m (storage capacity)
+<<<<<<< HEAD
         // feature 3: append waste indicator to sink edge labels
         for (int j = 0; j < storageList.size(); j++) {
             int st      = storageList.get(j);
@@ -185,6 +217,13 @@ public class BFNGraph extends JPanel implements Runnable {
             edges.add(new int[]{2, st, 3, -1});
             edgeCaps.add("m=" + storageSlots[j] + "\nE=" + nodeEnergies[st]
                          + "\n(ST " + (st+1) + ")" + wasteStr);
+=======
+        for (int j = 0; j < storageList.size(); j++) {
+            int st = storageList.get(j);
+            edges.add(new int[]{2, st, 3, -1});
+            edgeCaps.add("m=" + storageSlots[j] + "\nE=" + nodeEnergies[st]
+                         + "\n(ST " + (st+1) + ")");
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         }
 
         // mark flow edges
@@ -230,6 +269,10 @@ public class BFNGraph extends JPanel implements Runnable {
         sPoint = new Point(sourceX, startY + totalH/2);
         tPoint = new Point(sinkX,   startY + totalH/2);
 
+<<<<<<< HEAD
+=======
+        // reset ctrl points on resize; preserve user drags otherwise
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         boolean resized = (W != lastW || H != lastH);
         lastW = W; lastH = H;
         for (int ei = 0; ei < edges.size(); ei++) {
@@ -260,6 +303,7 @@ public class BFNGraph extends JPanel implements Runnable {
         return new Point(c.x+offsetX, c.y+offsetY);
     }
 
+<<<<<<< HEAD
     // ── label position ────────────────────────────────────────────────────────
     private Point labelPos(int ei, int[] e, Point p1, Point p2, Point ctrl) {
         boolean isS   = e[0]==0;
@@ -280,12 +324,51 @@ public class BFNGraph extends JPanel implements Runnable {
             if (len > 0) { dx /= len; dy /= len; }
             int perpSign = (dgIdx % 2 == 0) ? 1 : -1;
             int perpDist = 20 + dgIdx * 10;
+=======
+    // ── label position — called identically for flow and non-flow ─────────────
+    // Rules:
+    //   s→i'  : label tracks 40% along the actual edge line, offset perp ±12px
+    //            so each d= label sits on its own edge away from s
+    //   i'→i" : label above the midpoint
+    //   u"→v' : label alternates above/below midpoint per edge index
+    //   j"→t  : labels spread vertically near t, one per storage node
+    private Point labelPos(int ei, int[] e, Point p1, Point p2, Point ctrl) {
+        boolean isS  = e[0]==0;
+        boolean isT  = e[2]==3;
+        boolean isInt = e[0]==1 && e[2]==2 && e[1]==e[3];
+        boolean isInf = "inf".equals(edgeCaps.get(ei));
+
+        if (isInt) {
+            // E= above internal edge midpoint
+            return new Point(ctrl.x, ctrl.y - 20);
+        }
+
+        if (isS) {
+            // Each d= label gets a unique position by combining:
+            // - a fixed fraction along the edge (avoids clustering near s)
+            // - a perpendicular offset scaled by DG index (avoids label overlap)
+            // Use DG insertion order in dgSet for stable indexing.
+            int dgIdx = new ArrayList<>(dgSet).indexOf(e[3]);
+            if (dgIdx < 0) dgIdx = 0;
+            // place label at 45% along the edge from s to the in-node
+            double t  = 0.45;
+            int    lx = (int)(p1.x + t*(p2.x - p1.x));
+            int    ly = (int)(p1.y + t*(p2.y - p1.y));
+            // perpendicular unit vector
+            double dx = p2.x - p1.x, dy = p2.y - p1.y;
+            double len = Math.sqrt(dx*dx + dy*dy);
+            if (len > 0) { dx /= len; dy /= len; }
+            // alternate sides with increasing offset per DG index
+            int perpSign = (dgIdx % 2 == 0) ? 1 : -1;
+            int perpDist = 20 + dgIdx * 10; // 20, 30, 40... px per DG
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             lx += (int)(-dy * perpDist * perpSign);
             ly += (int)( dx * perpDist * perpSign);
             return new Point(lx, ly);
         }
 
         if (isT) {
+<<<<<<< HEAD
             // feature 3: spread waste labels vertically with extra spacing
             // to accommodate the extra "used=" and "waste=" lines
             int idx    = storageList.indexOf(e[1]);
@@ -298,6 +381,22 @@ public class BFNGraph extends JPanel implements Runnable {
             double t = 0.25 + (ei % 4) * 0.17;
             int lx = (int)(p1.x + t*(p2.x - p1.x));
             int ly = (int)(p1.y + t*(p2.y - p1.y));
+=======
+            // m= labels: fixed x well left of t, spread 50px apart vertically
+            int idx    = storageList.indexOf(e[1]);
+            int total  = storageList.size();
+            int spread = (idx - (total-1)/2) * 50;
+            return new Point(tPoint.x + offsetX - 85, tPoint.y + offsetY + spread);
+        }
+
+        if (isInf) {
+            // spread inf labels: use ei to pick position along edge AND
+            // side, giving each routing edge a unique label location
+            double t = 0.25 + (ei % 4) * 0.17; // 0.25, 0.42, 0.59, 0.76
+            int lx = (int)(p1.x + t*(p2.x - p1.x));
+            int ly = (int)(p1.y + t*(p2.y - p1.y));
+            // also offset perpendicular slightly so overlapping edges separate
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             double dx = p2.x-p1.x, dy = p2.y-p1.y;
             double len = Math.sqrt(dx*dx+dy*dy);
             if (len>0){dx/=len;dy/=len;}
@@ -349,9 +448,12 @@ public class BFNGraph extends JPanel implements Runnable {
         g2.drawRoundRect(30,30,W-60,H-60,20,20);
         if (n==0) return;
 
+<<<<<<< HEAD
         // feature 1: draw algorithm name prominently inside the canvas
         drawAlgoLabel(g2, W);
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         Stroke def = g2.getStroke();
         List<LabelDraw> labels = new ArrayList<>();
 
@@ -362,7 +464,10 @@ public class BFNGraph extends JPanel implements Runnable {
             String cap = edgeCaps.get(ei);
             boolean isInt = e[0]==1 && e[2]==2 && e[1]==e[3];
             boolean isInf = "inf".equals(cap);
+<<<<<<< HEAD
             boolean isSink = e[2]==3;
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             Point p1 = px(e[0],e[1]), p2 = px(e[2],e[3]), ctrl = ctrlPx(ei);
 
             if (isInf) {
@@ -382,6 +487,7 @@ public class BFNGraph extends JPanel implements Runnable {
 
             Point lp = labelPos(ei, e, p1, p2, ctrl);
             Color lc  = isInt ? COL_EDGE_INT : isInf ? COL_EDGE_RT : COL_TEXT;
+<<<<<<< HEAD
 
             // feature 3: highlight waste labels on sink edges in amber
             if (isSink && storageWaste != null) {
@@ -391,6 +497,8 @@ public class BFNGraph extends JPanel implements Runnable {
                     lc = new Color(180, 100, 0);
                 }
             }
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             labels.add(new LabelDraw(cap, lp.x, lp.y, Font.PLAIN, lc));
         }
 
@@ -399,6 +507,7 @@ public class BFNGraph extends JPanel implements Runnable {
             if (!flowIdx.contains(ei)) continue;
             int[] e    = edges.get(ei);
             String cap = edgeCaps.get(ei);
+<<<<<<< HEAD
             boolean isSink = e[2]==3;
             Point p1 = px(e[0],e[1]), p2 = px(e[2],e[3]), ctrl = ctrlPx(ei);
 
@@ -407,11 +516,20 @@ public class BFNGraph extends JPanel implements Runnable {
             g2.setStroke(new BasicStroke(14f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             drawCurvedArrow(g2, p1, p2, ctrl, false);
             g2.setColor(colFlow);
+=======
+            Point p1 = px(e[0],e[1]), p2 = px(e[2],e[3]), ctrl = ctrlPx(ei);
+
+            g2.setColor(COL_FLOW_GLOW);
+            g2.setStroke(new BasicStroke(14f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            drawCurvedArrow(g2, p1, p2, ctrl, false);
+            g2.setColor(COL_FLOW);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             g2.setStroke(new BasicStroke(3.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             drawCurvedArrow(g2, p1, p2, ctrl, true);
             g2.setStroke(def);
 
             Point lp = labelPos(ei, e, p1, p2, ctrl);
+<<<<<<< HEAD
 
             // feature 3: on active sink flow edges, use amber if waste > 0
             Color lc = colFlow;
@@ -423,6 +541,9 @@ public class BFNGraph extends JPanel implements Runnable {
                 }
             }
             labels.add(new LabelDraw(cap, lp.x, lp.y, Font.BOLD, lc));
+=======
+            labels.add(new LabelDraw(cap, lp.x, lp.y, Font.BOLD, COL_FLOW));
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         }
 
         // ── nodes ─────────────────────────────────────────────────────────────
@@ -439,6 +560,7 @@ public class BFNGraph extends JPanel implements Runnable {
                                                       : new Color(180,180,195);
             Point pi = px(1,i), po = px(2,i);
             if (isRelay) {
+<<<<<<< HEAD
                 // feature 5: relay ring uses algorithm flow color
                 g2.setColor(new Color(colFlow.getRed(), colFlow.getGreen(),
                                       colFlow.getBlue(), 45));
@@ -446,6 +568,12 @@ public class BFNGraph extends JPanel implements Runnable {
                 g2.fillOval(po.x-NODE_R-7,po.y-NODE_R-7,NODE_R*2+14,NODE_R*2+14);
                 g2.setColor(new Color(colFlow.getRed(), colFlow.getGreen(),
                                       colFlow.getBlue(), 150));
+=======
+                g2.setColor(new Color(255,170,70,45));
+                g2.fillOval(pi.x-NODE_R-7,pi.y-NODE_R-7,NODE_R*2+14,NODE_R*2+14);
+                g2.fillOval(po.x-NODE_R-7,po.y-NODE_R-7,NODE_R*2+14,NODE_R*2+14);
+                g2.setColor(new Color(230,120,20,150));
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                 g2.setStroke(new BasicStroke(1.8f));
                 g2.drawOval(pi.x-NODE_R-7,pi.y-NODE_R-7,NODE_R*2+14,NODE_R*2+14);
                 g2.drawOval(po.x-NODE_R-7,po.y-NODE_R-7,NODE_R*2+14,NODE_R*2+14);
@@ -455,10 +583,14 @@ public class BFNGraph extends JPanel implements Runnable {
             drawNode(g2, po, (i+1)+"\"", fill, light);
         }
 
+<<<<<<< HEAD
         // feature 3: draw waste badges on storage out-nodes
         drawWasteBadges(g2, def);
 
         // labels drawn last
+=======
+        // labels drawn last — always on top of edges
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         for (LabelDraw lbl : labels) drawEdgeLabel(g2, lbl);
 
         // drag indicator
@@ -475,6 +607,7 @@ public class BFNGraph extends JPanel implements Runnable {
         drawLegend(g2, def, W, H);
     }
 
+<<<<<<< HEAD
     // ── feature 1: algorithm name label inside canvas ─────────────────────────
     private void drawAlgoLabel(Graphics2D g2, int W) {
         String label = algoTitle;
@@ -527,6 +660,8 @@ public class BFNGraph extends JPanel implements Runnable {
         }
     }
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     // ── drawing helpers ───────────────────────────────────────────────────────
     private void drawCurvedArrow(Graphics2D g2, Point p1, Point p2,
                                   Point ctrl, boolean arrowHead) {
@@ -616,6 +751,7 @@ public class BFNGraph extends JPanel implements Runnable {
             "DG (source) — i', i\"", "Storage (sink) — i', i\"",
             "Relay node used by flow", "s / t  super source / sink",
             "i' → i\"  energy edge (Eᵢ)", "BSN routing edge (inf cap)",
+<<<<<<< HEAD
             "Flow path (" + algoTitle + ")",   // feature 1: show algo in legend
             "Storage waste badge (amber)",       // feature 3: waste in legend
             "Drag any edge line to bend it"
@@ -625,12 +761,22 @@ public class BFNGraph extends JPanel implements Runnable {
             colFlow.getBlue()), COL_ST_NODE, COL_EDGE_INT, COL_EDGE_RT,
             colFlow, new Color(180, 100, 0), new Color(100,80,180)
         };
+=======
+            "GOA flow path", "Drag any edge line to bend it"
+        };
+        Color[] col = { COL_DG, COL_ST, new Color(230,120,20), COL_ST_NODE,
+                        COL_EDGE_INT, COL_EDGE_RT, COL_FLOW, new Color(100,80,180) };
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         g2.setFont(new Font("SansSerif",Font.PLAIN,12));
         FontMetrics fm = g2.getFontMetrics();
         int maxW=0; for (String s:lbl) maxW=Math.max(maxW,fm.stringWidth(s));
         int bw=16,bh=16,gap=9,px=12,py=10;
         int boxW=maxW+bw+px*2+10, boxH=lbl.length*(bh+gap)+py*2;
         int lx=W-boxW-14, ly=H-boxH-14;
+<<<<<<< HEAD
+=======
+        // ensure legend never clips off screen
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         if (ly < 10) ly = 10;
         if (lx < 10) lx = 10;
         g2.setColor(new Color(0,0,0,25));
@@ -650,9 +796,13 @@ public class BFNGraph extends JPanel implements Runnable {
                 g2.setColor(col[i].darker()); g2.setStroke(new BasicStroke(1f));
                 g2.drawOval(ix,cy,bw,bh);
             } else if (i==2) {
+<<<<<<< HEAD
                 // relay ring — uses algo flow color
                 g2.setColor(new Color(colFlow.getRed(), colFlow.getGreen(),
                                       colFlow.getBlue(), 80));
+=======
+                g2.setColor(new Color(255,170,70,80));
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                 g2.fillOval(ix-2,cy-2,bw+4,bh+4);
                 g2.setColor(col[i]); g2.setStroke(new BasicStroke(2f));
                 g2.drawOval(ix-2,cy-2,bw+4,bh+4);
@@ -669,13 +819,18 @@ public class BFNGraph extends JPanel implements Runnable {
                     BasicStroke.JOIN_MITER,1f,new float[]{5,4},0));
                 g2.drawArc(ix,cy,bw,bh,20,140); g2.setStroke(def);
             } else if (i==6) {
+<<<<<<< HEAD
                 // flow path swatch — uses algo flow color
                 g2.setColor(colFlowGlow);
+=======
+                g2.setColor(COL_FLOW_GLOW);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                 g2.setStroke(new BasicStroke(7f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
                 g2.drawLine(ix,cy+bh/2,ix+bw,cy+bh/2);
                 g2.setColor(col[i]);
                 g2.setStroke(new BasicStroke(2.5f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
                 g2.drawLine(ix,cy+bh/2,ix+bw,cy+bh/2); g2.setStroke(def);
+<<<<<<< HEAD
             } else if (i==7) {
                 // waste badge swatch — amber pill
                 g2.setColor(new Color(255, 180, 0, 220));
@@ -684,6 +839,8 @@ public class BFNGraph extends JPanel implements Runnable {
                 g2.setStroke(new BasicStroke(0.9f));
                 g2.drawRoundRect(ix, cy+2, bw, bh-4, 5, 5);
                 g2.setStroke(def);
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             } else {
                 g2.setColor(new Color(160,140,200,180));
                 g2.setStroke(new BasicStroke(1.2f));
@@ -701,6 +858,11 @@ public class BFNGraph extends JPanel implements Runnable {
                 int hit = hitEdge(e.getX(), e.getY());
                 if (hit >= 0) {
                     dragEdgeIdx = hit;
+<<<<<<< HEAD
+=======
+                    // record offset from current ctrl point to mouse
+                    // so dragging moves ctrl relative to where you grabbed
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                     Point c = ctrlPx(hit);
                     dragOffX = e.getX() - c.x;
                     dragOffY = e.getY() - c.y;
@@ -720,6 +882,11 @@ public class BFNGraph extends JPanel implements Runnable {
         addMouseMotionListener(new MouseMotionAdapter() {
             @Override public void mouseDragged(MouseEvent e) {
                 if (dragEdgeIdx >= 0) {
+<<<<<<< HEAD
+=======
+                    // move ctrl by the delta from grab offset
+                    // so the line bends smoothly from wherever you grabbed it
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                     int rawX = e.getX() - dragOffX - offsetX;
                     int rawY = e.getY() - dragOffY - offsetY;
                     edgeCtrl.put(dragEdgeIdx, new Point(rawX, rawY));
@@ -747,8 +914,12 @@ public class BFNGraph extends JPanel implements Runnable {
         frame.setPreferredSize(new Dimension(1700, prefH));
         JLabel banner = new JLabel("BFN: "+algoTitle, SwingConstants.CENTER);
         banner.setOpaque(true);
+<<<<<<< HEAD
         // feature 1: banner background uses algorithm flow color
         banner.setBackground(colFlow.darker());
+=======
+        banner.setBackground(new Color(116,72,168));
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         banner.setForeground(Color.WHITE);
         banner.setFont(new Font("SansSerif",Font.BOLD,18));
         banner.setBorder(BorderFactory.createEmptyBorder(8,10,8,10));

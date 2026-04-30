@@ -10,6 +10,7 @@ public class SensorStuff {
     protected int[] packetPriority;
     protected int[] nodeEnergy;
 
+<<<<<<< HEAD
     int     cfnNodes;
     int[][] cap;
     int[][] flow;
@@ -19,6 +20,16 @@ public class SensorStuff {
     int inNode(int i)  { return 2*i + 1; }
     int outNode(int i) { return 2*i + 2; }
     int superSink()    { return 2*nodeLoc.length + 1; }
+=======
+    private int     cfnNodes;
+    private int[][] cap;
+    private int[][] flow;
+    private Set<Integer> dgCFNIds = new HashSet<>();
+
+    private int inNode(int i)  { return 2*i + 1; }
+    private int outNode(int i) { return 2*i + 2; }
+    private int superSink()    { return 2*nodeLoc.length + 1; }
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
     protected class AdjacentMatrix {
         protected int[][] adjM;
@@ -155,7 +166,11 @@ public class SensorStuff {
     //  jitter still varies across trials while guaranteeing connectivity.
     // =========================================================================
 
+<<<<<<< HEAD
     int buildConnectedGraph(int numNodes, int widthX, int lenY, int baseTR, Random rand, boolean applyJitter) {
+=======
+    private int buildConnectedGraph(int numNodes, int widthX, int lenY, int baseTR, Random rand, boolean applyJitter) {
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         int trialTR = baseTR;
         int attempts = 0;
         do {
@@ -183,6 +198,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
+<<<<<<< HEAD
     //  ADJACENCY TRACE PRINTER
     //
     //  Prints the full adjacency structure to the terminal for one trial.
@@ -262,6 +278,8 @@ public class SensorStuff {
     }
 
     // =========================================================================
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     // ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
     //  BSN-BASED FLOW NETWORK (BFN) — GRAPH TRANSFORMATION
     //
@@ -311,10 +329,13 @@ public class SensorStuff {
         flow     = new int[cfnNodes][cfnNodes];
         dgCFNIds.clear();
 
+<<<<<<< HEAD
         // issue 2 fix: cache maxSz here so computeRelayPenalty never loops
         cachedMaxSz = 1;
         for (int sz : packetSize) cachedMaxSz = Math.max(cachedMaxSz, sz);
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         for (int dg : dgNodes) {
             cap[S][inNode(dg)] = packetsPerNode[dg];
             dgCFNIds.add(inNode(dg));
@@ -344,7 +365,11 @@ public class SensorStuff {
     //  sinkCap[j] >= szᵢ (at least one packet of that size fits).
     // =========================================================================
 
+<<<<<<< HEAD
     int[] bfsFAP(int cfnSource, int szI, int[] sinkCap) {
+=======
+    private int[] bfsFAP(int cfnSource, int szI, int[] sinkCap) {
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         int S = 0, T = superSink();
         int[]    parent = new int[cfnNodes];
         boolean[] vis   = new boolean[cfnNodes];
@@ -481,6 +506,10 @@ public class SensorStuff {
         if (!anyRelay) System.out.println("  No relay nodes used.");
     }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     private int cfnToBSNNode(int cfnNode) {
         if (cfnNode <= 0 || cfnNode == superSink()) return -1;
         return (cfnNode - 1) / 2;
@@ -561,6 +590,7 @@ public class SensorStuff {
     // =========================================================================
     // ████████████████████████████████████████████████████████████████████████
     //
+<<<<<<< HEAD
     //   ALGORITHMS — GOA, DENSITY GOA, APPROX GOA, HYBRID GOA
     //
     //   All algorithms share the same BFN graph and FAP-based flow
@@ -570,6 +600,16 @@ public class SensorStuff {
     //     1. Runs a pre-flight feasibility check (needsMWF)
     //     2. Builds the BFN (buildCFN)
     //     3. Sorts / selects DG nodes by its chosen key
+=======
+    //   ALGORITHMS — GOA, DENSITY GOA, APPROX GOA
+    //
+    //   All three algorithms share the same BFN graph and FAP-based flow
+    //   augmentation loop. The only difference between them is the order
+    //   in which DG sources are processed. Each algorithm:
+    //     1. Runs a pre-flight feasibility check (needsMWF)
+    //     2. Builds the BFN (buildCFN)
+    //     3. Sorts DG nodes by its chosen key
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //     4. Iterates: find FAP → compute bottleneck Δ → augment flow
     //     5. Prints relay node activity and launches graph windows
     //
@@ -725,6 +765,7 @@ public class SensorStuff {
     //    first. Treats storage as the binding constraint and maximizes how
     //    much priority fits per unit consumed — like fractional knapsack.
     //
+<<<<<<< HEAD
     //  DISTINCTION FROM PAPER'S ALGO 5 (Issue B):
     //    Algorithm 5 in Rivera & Tang (2024) sorts by vᵢ/cᵢ where cᵢ is
     //    the EDGE CAPACITY COST per unit flow — an MWF-H concept meaning
@@ -738,6 +779,8 @@ public class SensorStuff {
     //    contribution motivated by the fractional knapsack analogy, NOT a
     //    direct application of the paper's Algo 5.
     //
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //  WHEN IT WINS:
     //    When high-priority packets are large and low-priority packets are
     //    small — sorting by raw priority wastes storage on big packets.
@@ -895,6 +938,7 @@ public class SensorStuff {
     //    sub-routines and returns whichever result is higher.
     //
     //  GUARANTEE:
+<<<<<<< HEAD
     //    Adapted from Theorem 5 of Rivera & Tang (2024), which proves a
     //    1/2-approximation under the ALL-OR-NOTHING model — each source
     //    either sends ALL dᵢ packets or NONE. That paper uses costs cᵢ
@@ -917,13 +961,26 @@ public class SensorStuff {
     //    experiments showing ≥97% of optimal empirically) but is NOT
     //    formally proven here. It should be treated as a strong heuristic
     //    with an empirical approximation ratio, not a formal guarantee.
+=======
+    //    Always produces at least half the theoretical optimal — proven by
+    //    adapting Theorem 5 from Rivera & Tang (2024) to the size-aware case.
+    //
+    //  WHY IT WORKS:
+    //    One of the two orderings must capture at least half the optimal
+    //    priority. Taking the max of both ensures the guarantee holds even
+    //    when neither sub-routine alone is optimal.
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //
     //  STEPS:
     //    1. Run sub-routine A: greedy by vᵢ (same as GOA) → result VfA
     //    2. Run sub-routine B: greedy by vᵢ/szᵢ (same as Density GOA) → VfB
     //    3. Return max(VfA, VfB)
     //
+<<<<<<< HEAD
     //  APPROXIMATION PROOF SKETCH (from Theorem 5, all-or-nothing model):
+=======
+    //  APPROXIMATION PROOF SKETCH:
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //    Let Sw = sources that send in sub-routine B before first failure sⱼ
     //    V'f = Σ(sᵢ∈Sw)(vᵢ×dᵢ)  and  vⱼ×dⱼ <= Vf  (A sends highest v first)
     //    Vopt <= V'f + vⱼ×dⱼ <= V'f + Vf
@@ -950,6 +1007,7 @@ public class SensorStuff {
         return best;
     }
 
+<<<<<<< HEAD
     // ─────────────────────────────────────────────────────────────────────────
     // ALGORITHM 4 — HYBRID GOA (PE-κ2 + Rollout + Best-Fit Storage)
     //
@@ -2266,6 +2324,8 @@ public class SensorStuff {
         }
     }
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     // =========================================================================
     // ████████████████████████████████████████████████████████████████████████
     //   END OF ALGORITHMS
@@ -2444,6 +2504,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
+<<<<<<< HEAD
     //  SILENT RUN FOR HYBRID GOA (no output, no graphs — used for scaling)
     //
     //  Mirrors goaHybrid but produces no console output or graph windows.
@@ -2554,6 +2615,8 @@ public class SensorStuff {
     }
 
     // =========================================================================
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //  SILENT RUN WITH FLOW EDGE COLLECTION (used by visual run)
     // =========================================================================
 
@@ -2647,6 +2710,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
+<<<<<<< HEAD
     //  BEST-FIT AUGMENTATION HELPER (used by Hybrid GOA)
     //
     //  Fully augments one DG (given by index idx into dgNodes) using
@@ -2775,6 +2839,8 @@ public class SensorStuff {
     }
 
     // =========================================================================
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //  BFN VISUALISATION
     // =========================================================================
 
@@ -2783,6 +2849,7 @@ public class SensorStuff {
                           int[]         storageCapacity,
                           List<int[]>   goaFlowEdges,
                           String        algoTitle) {
+<<<<<<< HEAD
         launchBFN(dgNodes, storageNodes, storageCapacity,
                   null, goaFlowEdges, algoTitle);
     }
@@ -2794,6 +2861,8 @@ public class SensorStuff {
                           int[]         finalSinkCap,
                           List<int[]>   goaFlowEdges,
                           String        algoTitle) {
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         int n = nodeLoc.length;
 
         int[] storageSlotsByNode = new int[n];
@@ -2802,6 +2871,7 @@ public class SensorStuff {
             storageSlotsByNode[st] = storageCapacity[j];
         }
 
+<<<<<<< HEAD
         // compute waste per storage node: original cap minus what was used
         // waste[j] = finalSinkCap[outNode(st)] if provided, else 0
         int[] wastePerStorage = new int[storageNodes.size()];
@@ -2813,6 +2883,8 @@ public class SensorStuff {
             }
         }
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         int[][] adjMatrix = new int[n][n];
         if (adjM != null) {
             adjMatrix = adjM.getAdjM();
@@ -2827,7 +2899,11 @@ public class SensorStuff {
         panel.build(n, nodeEnergy,
                     new HashSet<>(dgNodes), storageNodes,
                     nodeLoc, packetsPerNode, storageSlotsByNode,
+<<<<<<< HEAD
                     wastePerStorage, adjMatrix, goaFlowEdges);
+=======
+                    adjMatrix, goaFlowEdges);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         SwingUtilities.invokeLater(panel);
     }
 
@@ -2909,6 +2985,7 @@ public class SensorStuff {
     }
 
     // =========================================================================
+<<<<<<< HEAD
     //  OPTIMALITY GAP HELPER
     //
     //  Returns a formatted string showing what percentage of the ILP optimal
@@ -2922,6 +2999,8 @@ public class SensorStuff {
     }
 
     // =========================================================================
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
     //  MAIN
     // =========================================================================
 
@@ -3030,16 +3109,20 @@ public class SensorStuff {
                 "  Storage %d: capacity=%d, energy=%d%n",
                 visST.get(j), visCap[j], visNet.nodeEnergy[visST.get(j)]);
 
+<<<<<<< HEAD
         // print adjacency structure for the visual run so the graph topology
         // is visible in the terminal alongside the algorithm output
         visNet.printAdjacency(visDG, visST);
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         // use goa() and goaDensity() directly so feasibility check,
         // relay tracking, and console output all appear in the visual run
         System.out.println("\n-- Running GOA (visual) --");
         double visGOA     = visNet.goa(visDG, visST, visCap);
         System.out.println("\n-- Running Density GOA (visual) --");
         double visDensity = visNet.goaDensity(visDG, visST, visCap);
+<<<<<<< HEAD
         System.out.println("\n-- Running Hybrid GOA (visual) --");
         double visHybrid  = visNet.goaHybrid(visDG, visST, visCap);
         System.out.println("\n-- Running DDR-GOA (visual) --");
@@ -3062,6 +3145,10 @@ public class SensorStuff {
             visDDR,     visExact > 0 ? 100.0*visDDR/visExact     : 0);
         System.out.printf("  PSB-GOA total priority:     %.1f  (%.1f%% of optimal)%n",
             visPSB,     visExact > 0 ? 100.0*visPSB/visExact     : 0);
+=======
+        System.out.printf("%n  GOA total priority:         %.1f%n", visGOA);
+        System.out.printf("  Density GOA total priority: %.1f%n", visDensity);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
         System.out.println("\n-- Graphs launched. Starting scaling runs... --\n");
 
@@ -3071,6 +3158,7 @@ public class SensorStuff {
                 "%n==== Network Size: %d nodes, %d trials ====%n",
                 numNodes, trials);
 
+<<<<<<< HEAD
             double sumGOA = 0, sumDensity = 0, sumApprox = 0,
                    sumHybrid = 0, sumDDR = 0, sumPSB = 0, sumExact = 0;
             int densityBeatGOA = 0, goaBeatDensity = 0, tied = 0;
@@ -3078,6 +3166,10 @@ public class SensorStuff {
             int ddrBeatApprox = 0, approxBeatDDR = 0, ddrTied = 0;
             int psbBeatAll = 0, allBeatPSB = 0, psbTied = 0;
             int exactTrials = 0;  // trials where exact solver ran
+=======
+            double sumGOA = 0, sumDensity = 0, sumApprox = 0;
+            int densityBeatGOA = 0, goaBeatDensity = 0, tied = 0;
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
             for (int t = 1; t <= trials; t++) {
 
@@ -3120,6 +3212,7 @@ public class SensorStuff {
                     storageCap[j] = (minCap == maxCap) ? minCap
                         : rand.nextInt(maxCap - minCap + 1) + minCap;
 
+<<<<<<< HEAD
                 // issue 4 fix: skip all algorithms if no bottleneck exists
                 // runSilent/Hybrid/PSB/DDR all call buildCFN internally but do
                 // not check needsMWF — doing it once here avoids wasted work
@@ -3130,11 +3223,14 @@ public class SensorStuff {
                     continue;
                 }
 
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
                 double goaResult     = net.runSilent(dgNodes, storageNodes,
                                                      storageCap, false);
                 double densityResult = net.runSilent(dgNodes, storageNodes,
                                                      storageCap, true);
                 double approxResult  = Math.max(goaResult, densityResult);
+<<<<<<< HEAD
                 double hybridResult  = net.runSilentHybrid(dgNodes, storageNodes,
                                                            storageCap);
                 double ddrResult     = net.runSilentDDR(dgNodes, storageNodes,
@@ -3161,18 +3257,29 @@ public class SensorStuff {
                     t, trialTR, dgNodes.size(), storageNodes.size(),
                     goaResult, densityResult, approxResult,
                     hybridResult, ddrResult, psbResult, exactStr);
+=======
+
+                System.out.printf(
+                    "  Trial %2d [TR=%d, DGs=%d, STs=%d]: GOA=%.1f  Density=%.1f  Approx=%.1f%n",
+                    t, trialTR, dgNodes.size(), storageNodes.size(),
+                    goaResult, densityResult, approxResult);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
                 sumGOA     += goaResult;
                 sumDensity += densityResult;
                 sumApprox  += approxResult;
+<<<<<<< HEAD
                 sumHybrid  += hybridResult;
                 sumDDR     += ddrResult;
                 sumPSB     += psbResult;
                 if (exactRan) { sumExact += exactResult; exactTrials++; }
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
 
                 if (densityResult > goaResult)      densityBeatGOA++;
                 else if (goaResult > densityResult) goaBeatDensity++;
                 else                                tied++;
+<<<<<<< HEAD
 
                 if (hybridResult > approxResult)      hybridBeatApprox++;
                 else if (approxResult > hybridResult) approxBeatHybrid++;
@@ -3203,12 +3310,21 @@ public class SensorStuff {
                 sumDDR/trials, gap(sumDDR/trials, avgExact));
             System.out.printf("  PSB-GOA avg:          %.2f%s%n",
                 sumPSB/trials, gap(sumPSB/trials, avgExact));
+=======
+            }
+
+            System.out.printf("%n-- Averages over %d trials --%n", trials);
+            System.out.printf("  GOA avg:              %.2f%n", sumGOA     / trials);
+            System.out.printf("  Density GOA avg:      %.2f%n", sumDensity / trials);
+            System.out.printf("  Approx GOA avg:       %.2f%n", sumApprox  / trials);
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
             System.out.printf("  Density beat GOA:     %d/%d trials%n",
                               densityBeatGOA, trials);
             System.out.printf("  GOA beat Density:     %d/%d trials%n",
                               goaBeatDensity, trials);
             System.out.printf("  Tied:                 %d/%d trials%n",
                               tied, trials);
+<<<<<<< HEAD
             System.out.printf("  Hybrid beat Approx:   %d/%d trials%n",
                               hybridBeatApprox, trials);
             System.out.printf("  Approx beat Hybrid:   %d/%d trials%n",
@@ -3227,6 +3343,8 @@ public class SensorStuff {
                               allBeatPSB, trials);
             System.out.printf("  PSB/others tied:      %d/%d trials%n",
                               psbTied, trials);
+=======
+>>>>>>> 759c1cb616300bd4b66af6f0e4ea7a040a614c9c
         }
 
         kb.close();
