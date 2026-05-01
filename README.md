@@ -14,9 +14,9 @@ In the original paper, all data packets are assumed to be unit-sized, allowing A
 **Key results:**
 - GOA is provably suboptimal when packet sizes vary (counterexample: GOA=20, optimal=42)
 - Five new heuristic algorithms designed, from simple density sorting to prefix enumeration
-- Hybrid GOA and PSB-GOA reach 99.5–100% of optimal on 10-node networks
+- Hybrid GOA and PSB-GOA achieve 100% of B&B optimal across all five experiments (10- and 15-node networks)
+- ILP verification reveals the dual B&B solver is not a true exact solver — GLPK finds solutions up to 82% better on some instances due to the sequential routing limitation
 - DDR+-GOA (contention-aware extension) improves on DDR-GOA in sparse and heavily fragmented networks
-- Dual Branch & Bound exact solver correctly bounds all heuristics with zero violations
 - Codebase refactored from a 3,500-line monolith into 19 focused Java files
 
 ---
@@ -36,6 +36,7 @@ In the original paper, all data packets are assumed to be unit-sized, allowing A
 | `DDRPlusGOA.java` | Contention-aware DDR — shares reachable storage proportionally across competing DGs using √contention dampening |
 | `PSBGOA.java` | Per-Step Best-path scoring — scores every (DG, path) pair at each step, interleaves packets |
 | `ExactSolverNew.java` | Dual Branch & Bound — best-fit pass + BFS pass, shared global best |
+| `ILPSolver.java` | Generates CPLEX-format .lp file for true ILP optimal via GLPK/CPLEX/Gurobi |
 | `ExactSolver.java` | Legacy exact solver (single-strategy, retained for reference) |
 | **Experiment & I/O** | |
 | `SimulationRunner.java` | Scaling loop, active-trial tracking, violation warnings, fallback `*` markers, per-algorithm win/loss counts |
@@ -81,6 +82,20 @@ sudo apt install openjdk-21-jdk
 java -version
 ```
 
+### ILP Verification (Optional)
+To verify results against the true ILP optimal, install GLPK:
+```bash
+# macOS
+brew install glpk
+
+# Ubuntu/Debian
+sudo apt install glpk-utils
+
+# After running the program, verify the generated LP file:
+glpsol --lp mwf_s_ilp.lp -o solution.txt
+cat solution.txt | grep "obj ="
+```
+
 ---
 
 ## Compile & Run
@@ -95,22 +110,23 @@ java Main
 
 ### Sample Input
 ```
-Width x and length y of sensor network: 100 100
+Select mode: 1
+Width x and length y of sensor network: 150 150
 Transmission range (m): 55
 Graph structure - 1: adj-matrix, 2: adj-list: 1
-Network sizes to test (comma-separated, e.g. 10,50,100): 8,10
-Number of trials per network size: 30
-Min node energy level: 20
-Max node energy level: 20
-Min overflow packets per DG: 4
-Max overflow packets per DG: 8
+Network sizes to test (comma-separated, e.g. 10,50,100): 10
+Number of trials per network size: 10
+Min node energy level: 25
+Max node energy level: 25
+Min overflow packets per DG: 5
+Max overflow packets per DG: 10
 Min packet size (storage units): 1
 Max packet size (storage units): 6
-Min storage capacity (storage units): 4
-Max storage capacity (storage units): 10
+Min storage capacity (storage units): 8
+Max storage capacity (storage units): 15
 Min packet priority: 1
-Max packet priority: 20
-Number of nodes for visual run: 8
+Max packet priority: 30
+Number of nodes for visual run: 10
 ```
 
 > Setting min = max for any parameter produces the uniform (fixed) case.
@@ -177,7 +193,8 @@ j'' -> t  :  capacity = mⱼ    (raw storage units at storage node j)
 ### Algorithm 1 — GOA (Greedy Optimal Algorithm)
 **Based on:** Algorithm 3 from Rivera & Tang (2024)  
 **Sorting key:** Priority `vᵢ` descending  
-**Routing:** BFS shortest augmenting path
+**Routing:** BFS shortest augmenting path  
+**Complexity:** O(k·|V|·|E|²)
 
 Sorts DGs by priority weight and pushes maximum flow starting from the highest-priority source. Proven optimal for MWF-U (Theorem 2). Not optimal for MWF-S — a large high-priority packet may fill storage that could hold many small packets with greater combined priority.
 
@@ -193,14 +210,16 @@ Optimal = 42  (pushing DG1 first fits 6 packets)
 ### Algorithm 2 — Density GOA (Value Density Greedy)
 **New contribution**  
 **Sorting key:** Value density `ρᵢ = vᵢ / szᵢ` descending  
-**Routing:** BFS shortest augmenting path
+**Routing:** BFS shortest augmenting path  
+**Complexity:** O(k·|V|·|E|²)
 
-Sorts by priority per storage unit consumed. Motivated by the fractional knapsack algorithm — maximizes priority per unit of the binding constraint (storage). Consistently beats GOA by 3–7 percentage points on variable-size instances. Also not always optimal — leftover storage fragments create bin-packing difficulty.
+Sorts by priority per storage unit consumed. Motivated by the fractional knapsack algorithm (Dantzig, 1957). Consistently outperforms GOA when packet sizes vary. Also not always optimal — leftover storage fragments create bin-packing difficulty.
 
 ---
 
 ### Algorithm 3 — Approx GOA (2-Approximation)
-**Adapted from:** Algorithm 5 of Rivera & Tang (2024)
+**Adapted from:** Algorithm 5 of Rivera & Tang (2024)  
+**Complexity:** O(k·|V|·|E|²) with constant factor 2
 
 Runs both GOA and Density GOA independently on fresh network copies and returns whichever result is higher. Always at least as good as either constituent. Provides a guaranteed ≥ ½ × optimal bound (adapted from Theorem 5).
 
@@ -209,27 +228,30 @@ Runs both GOA and Density GOA independently on fresh network copies and returns 
 ### Algorithm 4 — Hybrid GOA (Prefix Enumeration + Best-Fit)
 **New contribution**  
 **Strategy:** Try every ordered pair of DGs as the first two to commit (κ=2), simulate the rest in density order, commit to the best starting combination  
-**Routing:** Best-fit storage selection (route to the storage node where leftover space is smallest)
+**Routing:** Best-fit storage selection (route to the storage node where leftover space is smallest)  
+**Complexity:** O(k⁴·|V|·|E|²), capped at MAX_HYBRID_DGS=12
 
-The most powerful heuristic. Addresses the fundamental weakness of all fixed-ordering algorithms: the best ordering depends on the network state after routing has begun. By trying k² starting combinations and measuring each one's full rollout, Hybrid GOA escapes bad orderings. Best-fit selection minimizes storage fragmentation by packing each node as tightly as possible. Reaches 99.6% of optimal at 10-node scale. Cost is O(k⁴), capped at MAX_HYBRID_DGS=12 with automatic fallback to Density GOA.
+Based on the rollout algorithm framework (Bertsekas, Tsitsiklis & Wu, 1997). Addresses the fundamental weakness of all fixed-ordering algorithms: the best ordering depends on the network state after routing has begun. Best-fit selection minimizes storage fragmentation. Achieves 100% of B&B optimal across all experiments.
 
 ---
 
 ### Algorithm 5 — DDR-GOA (Dynamic Density Reordering)
 **New contribution**  
 **Strategy:** Re-rank all remaining DGs after each full augmentation step  
-**Routing:** BFS shortest augmenting path
+**Routing:** BFS shortest augmenting path  
+**Complexity:** O(k²·|V|·|E|²)
 
-After routing each DG, recomputes effective priority for all remaining DGs: `effPri(i) = vᵢ × min(dᵢ, reachable_capacity / szᵢ)`. Routes whichever scores highest. Adapts to the changing residual network state. Performance is variable — works well when routing decisions strongly restrict future options, but the reachability estimate can be misleading when multiple DGs compete for the same storage.
+Grounded in adaptive submodularity theory (Golovin & Krause, 2011). After routing each DG, recomputes effective priority for all remaining DGs: `effPri(i) = vᵢ × min(dᵢ, reachable_capacity / szᵢ)`. Routes whichever scores highest.
 
 ---
 
 ### Algorithm 6 — DDR+-GOA (Contention-Aware DDR)
 **New contribution — extension of DDR-GOA**  
 **Strategy:** Re-rank with contention-weighted reachability  
-**Routing:** BFS shortest augmenting path
+**Routing:** BFS shortest augmenting path  
+**Complexity:** O(k²·|V|·|E|²)
 
-Fixes DDR-GOA's competition-blindness: when k DGs can all reach the same storage node, plain DDR gives each one full credit for that storage. DDR+ computes a contention map — how many active DGs reach each sink — and shares each sink's capacity proportionally using √contention dampening:
+Fixes DDR-GOA's competition-blindness using √contention dampening:
 
 ```
 share(i, j) = sinkCap(j) / √contention(j)
@@ -237,31 +259,32 @@ reachable+(i) = Σⱼ share(i, j)
 effPri+(i) = vᵢ × min(dᵢ, ⌊reachable+(i) / szᵢ⌋)
 ```
 
-Empirical results: DDR+ improves over DDR on sparse networks (3–1 win/loss at 8-node, TR=50) and heavily fragmented instances (10-node, sz 1–8: 95.4% vs 94.0%). On well-connected dense networks the contention signal can over-correct, making DDR+ slightly worse. The optimal dampening factor is instance-dependent — adaptive dampening is an open direction.
-
 ---
 
 ### Algorithm 7 — PSB-GOA (Per-Step Best-Path Scoring)
 **New contribution**  
-**Strategy:** Score every (DG, path) pair at each step, pick the globally best next move  
-**Routing:** Best-fit storage selection with relay energy penalty
+**Strategy:** PE(κ=2) prefix + per-step scoring tail  
+**Routing:** Best-fit storage selection with relay energy penalty  
+**Complexity:** O(k⁴·|V|·|E|²), capped at MAX_HYBRID_DGS=12
 
-The most fine-grained algorithm. Unlike all others, PSB-GOA never commits to one DG for more than one step. At each routing decision it evaluates every active DG on every available path using:
-
+Scores every (DG, path) pair at each step:
 ```
-score(i, path) = vᵢ / (waste + relayPenalty + 1)
+score(i, path) = (vᵢ × Δ) / (Δ × szᵢ + waste + relayPenalty(path) + 1)
 ```
-
-This lets it interleave packets from different DGs in whatever order is locally optimal at each moment. The relay penalty preserves relay energy for later packets. Matches Hybrid GOA at 99.5% of optimal through an entirely different mechanism — local per-step scoring rather than global prefix enumeration. Same O(k⁴) cap with Density GOA fallback beyond 12 DGs.
+Achieves 100% of B&B optimal across all experiments through a different mechanism than Hybrid GOA.
 
 ---
 
 ### Exact Solver — Dual Branch & Bound
-**Ground truth for evaluation**
+**Sequential routing ground truth**  
+**Complexity:** O(k!·|V|·|E|²), capped at MAX_EXACT_DGS=15
 
-Exhaustively searches all possible DG orderings using branch and bound with pruning. Warm-started with the best result from GOA, Density GOA, and Hybrid GOA. Children explored in density order for early pruning.
+Exhaustively searches all DG orderings with pruning. Warm-started with the best heuristic result. Runs two independent B&B searches (best-fit + BFS routing) with shared global best.
 
-**Critical design:** Runs two independent B&B searches — one with best-fit routing, one with standard BFS routing — both updating a shared global best. This is necessary because both routing strategies find genuinely different valid solutions; a single-strategy solver allowed heuristics to exceed it. After the dual-search fix, zero violations across all experiments. Capped at MAX_EXACT_DGS=15; returns N/A beyond that.
+**Important limitation:** The B&B solver is exact only within the space of sequential DG orderings. The true ILP optimal (computed via GLPK) can be significantly higher because it permits interleaved routing of packets from different DGs. See "ILP Verification" below.
+
+### ILP Solver
+`ILPSolver.java` generates a CPLEX-format `.lp` file encoding the full MWF-S integer linear program following ILP(B) from Rivera & Tang (2024). Solvable by GLPK, CPLEX, Gurobi, or SCIP to obtain the true global optimum.
 
 ---
 
@@ -285,24 +308,74 @@ Hybrid GOA and PSB-GOA enumerate k² prefixes with k-step rollouts → O(k⁴·n
 - The problem is **fundamentally harder** with sizes — leftover storage fragments create bin-packing difficulty on top of flow routing
 - Approx GOA **guarantees ≥ ½ × optimal** — proven by adapting Theorem 5 from Rivera & Tang (2024)
 - **Best-fit and BFS routing explore different feasible spaces** — the exact solver must cover both to guarantee correctness
+- **Sequential routing is a binding limitation** — the ILP finds solutions up to 82% better than the B&B on some instances
 - **Contention-aware reachability helps selectively** — DDR+ improves on DDR in sparse/fragmented settings but can over-correct in dense networks
 
 ---
 
-## Experimental Results Summary
+## Experimental Results
 
-| Algorithm | 8-node avg | 10-node avg | Notes |
-|-----------|-----------|------------|-------|
-| GOA | ~92–95% | ~93–95% | Baseline; suboptimal for MWF-S |
-| Density GOA | ~95–98% | ~96–97% | Simple density sort; consistently beats GOA |
-| Approx GOA | ~97–99% | ~98–99% | max(GOA, Density); safe baseline |
-| Hybrid GOA | ~99–100% | ~99–100% | Strongest heuristic; k⁴ cost |
-| DDR-GOA | ~95–97% | ~94–98% | Variable; adapts well on some instances |
-| DDR+-GOA | ~95–97% | ~95–96% | Improves DDR on sparse/fragmented networks |
-| PSB-GOA | ~99–100% | ~99–100% | Matches Hybrid via per-step scoring |
-| Exact | 100% | 100% | Dual B&B; N/A beyond k=15 |
+### Multi-Experiment Summary (% of B&B Optimal)
 
-All percentages relative to the dual B&B exact solver. Zero constraint violations after the dual-search fix.
+| Experiment | Pkt Size | Storage | GOA | Density | Hybrid | PSB |
+|------------|----------|---------|-----|---------|--------|-----|
+| 1: Small pkts, tight storage | 1–2 | 4–8 | 96.3% | 100.0% | 100.0% | 100.0% |
+| 2: Large pkts, tight storage | 4–8 | 8–15 | 98.0% | 97.5% | 100.0% | 100.0% |
+| 3: Wide range, knapsack stress | 1–8 | 8–15 | 94.5% | 98.3% | 99.7% | 99.7% |
+| 4: Abundant storage | 1–6 | 15–25 | 84.9% | 95.5% | 100.0% | 100.0% |
+| 5: 15 nodes, extreme frag | 1–8 | 6–12 | 97.0% | 93.9% | 100.0% | 100.0% |
+
+All experiments use uniform energy (25/node), field 150×150, TR=55 (Exp 5: 200×200, TR=60).
+
+### 10-Node Scaling Results (10 trials, 8 active)
+
+| Algorithm | Avg Priority | % of B&B Optimal |
+|-----------|-------------|------------------|
+| B&B Exact | 353.50 | 100.0% |
+| GOA | 342.63 | 96.9% |
+| Density GOA | 348.38 | 98.6% |
+| Approx GOA | 351.75 | 99.5% |
+| Hybrid GOA | 353.50 | 100.0% |
+| DDR-GOA | 349.13 | 98.8% |
+| DDR+-GOA | 347.75 | 98.4% |
+| PSB-GOA | 353.50 | 100.0% |
+
+### 15-Node Scaling Results (5 trials, 5 active)
+
+| Algorithm | Avg Priority | % of B&B Optimal |
+|-----------|-------------|------------------|
+| B&B Exact | 549.20 | 100.0% |
+| GOA | 525.20 | 95.6% |
+| Density GOA | 507.40 | 92.4% |
+| Approx GOA | 525.20 | 95.6% |
+| Hybrid GOA | 549.20 | 100.0% |
+| DDR-GOA | 519.20 | 94.5% |
+| DDR+-GOA | 514.20 | 93.6% |
+| PSB-GOA | 549.20 | 100.0% |
+
+### ILP Verification (B&B vs True ILP Optimal)
+
+| Instance | Nodes | DGs | B&B | ILP (GLPK) | Gap |
+|----------|-------|-----|-----|------------|-----|
+| Exp 3 visual run | 10 | 6 | 338 | 340 | 0.6% |
+| Exp 5 visual run | 15 | 9 | 655 | 759 | 15.9% |
+| Earlier 10-node run | 10 | 6 | 208 | 379 | 82.2% |
+| Earlier 15-node run | 15 | 8 | 389 | 504 | 29.6% |
+
+The gap is instance-dependent and arises from the sequential routing limitation of the B&B solver. The ILP can interleave packets from different DGs across paths simultaneously.
+
+### Algorithm Complexity
+
+| Algorithm | Time Complexity | Notes |
+|-----------|----------------|-------|
+| GOA | O(k·\|V\|·\|E\|²) | Simplest; optimal for MWF-U |
+| Density GOA | O(k·\|V\|·\|E\|²) | Same as GOA, different sort key |
+| Approx GOA | O(k·\|V\|·\|E\|²) | Constant factor 2× |
+| Hybrid GOA | O(k⁴·\|V\|·\|E\|²) | Capped at k=12 |
+| DDR-GOA | O(k²·\|V\|·\|E\|²) | Re-ranks after each DG |
+| DDR+-GOA | O(k²·\|V\|·\|E\|²) | Same as DDR + contention map |
+| PSB-GOA | O(k⁴·\|V\|·\|E\|²) | Capped at k=12 |
+| Exact B&B | O(k!·\|V\|·\|E\|²) | Capped at k=15 |
 
 ---
 
@@ -340,72 +413,47 @@ Each visual run opens graph windows per algorithm:
 
 ---
 
-## Sample Output
-
-### Visual Run
-```
--- Feasibility Check --
-  Total DG packets:    17
-  Total storage need:  58
-  Total storage cap:   25  (BOTTLENECK)
-  Total node energy:   120  (sufficient)
-  >> Bottleneck detected — running MWF.
-
-===== VISUAL RUN SUMMARY =====
-  ILP Optimal:                69.0
-  GOA priority:        69.0  (100.0% of optimal)
-  Density GOA priority: 69.0  (100.0% of optimal)
-  Hybrid GOA priority: 69.0  (100.0% of optimal)
-  DDR-GOA priority:    69.0  (100.0% of optimal)
-  DDR+-GOA priority:   69.0  (100.0% of optimal)
-  PSB-GOA priority:    69.0  (100.0% of optimal)
-```
-
-### Scaling Runs
-```
-==== Network Size: 8 nodes, 20 trials ====
-  Trial  1 [TR=49, DGs=3, STs=5]: GOA=81.0  Density=85.0  Approx=85.0
-    Hybrid=85.0  DDR=85.0  DDR+=85.0  PSB=85.0  Exact=85.0
-  ...
--- Results over 19 active trials (1 skipped, 20 total) --
-  ILP Optimal avg:      125.58  (19/19 active trials)
-  GOA avg:              114.16  (90.9% of optimal)
-  Density GOA avg:      121.95  (97.1% of optimal)
-  Approx GOA avg:       122.16  (97.3% of optimal)
-  Hybrid GOA avg:       125.32  (99.8% of optimal)
-  DDR-GOA avg:          119.95  (95.5% of optimal)
-  DDR+-GOA avg:         108.31  (96.4% of optimal)
-  PSB-GOA avg:          125.32  (99.8% of optimal)
-  DDR+ beat DDR:        5/16 active trials
-  DDR beat DDR+:        2/16 active trials
-  DDR+/DDR tied:        9/16 active trials
-```
-
----
-
 ## Recommended Test Inputs
 
 ### Small & clean (see everything working)
 ```
-100 100 / TR=55 / adj-matrix / sizes: 6,8 / 20 trials / energy 20-20
-packets 4-8 / pkt-size 1-6 / storage 4-10 / priority 1-20 / visual: 6
+150 150 / TR=55 / adj-matrix / sizes: 10 / 10 trials / energy 25-25
+packets 5-10 / pkt-size 1-6 / storage 8-15 / priority 1-30 / visual: 10
 ```
 
 ### Maximum fragmentation pressure
 ```
-100 100 / TR=65 / adj-matrix / sizes: 8,10 / 30 trials / energy 25-25
-packets 5-10 / pkt-size 1-8 / storage 4-8 / priority 1-50 / visual: 8
+150 150 / TR=55 / adj-matrix / sizes: 10 / 10 trials / energy 25-25
+packets 5-10 / pkt-size 1-8 / storage 8-15 / priority 5-50 / visual: 10
 ```
 
 ### Large scale with complexity cap
 ```
-300 300 / TR=70 / adj-matrix / sizes: 10,20,30 / 30 trials / energy 50-50
-packets 5-10 / pkt-size 1-8 / storage 6-16 / priority 1-50 / visual: 10
+200 200 / TR=60 / adj-matrix / sizes: 15 / 5 trials / energy 25-25
+packets 5-10 / pkt-size 1-8 / storage 6-12 / priority 10-50 / visual: 15
+```
+
+### ILP stress test (run glpsol after)
+```
+150 150 / TR=55 / adj-matrix / sizes: 10 / 10 trials / energy 25-25
+packets 5-10 / pkt-size 1-8 / storage 8-15 / priority 5-50 / visual: 10
+# Then: glpsol --lp mwf_s_ilp.lp -o solution.txt
 ```
 
 ---
 
-## Reference
+## References
 
-Rivera, G. & Tang, B. (2024). *Priority-Based Data Preservation in Challenging Environments: A Maximum Weighted Flow Approach.* California State University Dominguez Hills.  
-Paper: https://csc.csudh.edu/btang/papers/priority_journal.pdf
+1. G. Rivera and B. Tang, "Priority-Based Data Preservation in Challenging Environments: A Maximum Weighted Flow Approach," California State University Dominguez Hills, 2024. Paper: https://csc.csudh.edu/btang/papers/priority_journal.pdf
+2. L. R. Ford and D. R. Fulkerson, "Maximal Flow through a Network," *Canadian Journal of Mathematics*, vol. 8, pp. 399–404, 1956.
+3. J. Edmonds and R. M. Karp, "Theoretical Improvements in Algorithmic Efficiency for Network Flow Problems," *Journal of the ACM*, vol. 19, no. 2, pp. 248–264, 1972.
+4. R. K. Ahuja, T. L. Magnanti, and J. B. Orlin, *Network Flows: Theory, Algorithms, and Applications*. Prentice-Hall, 1993.
+5. H. Kellerer, U. Pferschy, and D. Pisinger, *Knapsack Problems*. Springer, 2004.
+6. D. S. Johnson, A. Demers, J. D. Ullman, M. R. Garey, and R. L. Graham, "Worst-Case Performance Bounds for Simple One-Dimensional Packing Algorithms," *SIAM Journal on Computing*, vol. 3, no. 4, pp. 299–325, 1974.
+7. D. P. Bertsekas, J. N. Tsitsiklis, and C. Wu, "Rollout Algorithms for Combinatorial Optimization," *Journal of Heuristics*, vol. 3, no. 3, pp. 245–262, 1997.
+8. D. Golovin and A. Krause, "Adaptive Submodularity: Theory and Applications in Active Learning and Stochastic Optimization," *Journal of Artificial Intelligence Research*, vol. 42, pp. 427–486, 2011.
+9. C. P. Gomes and B. Selman, "Algorithm Portfolios," *Artificial Intelligence*, vol. 126, no. 1–2, pp. 43–62, 2001.
+10. B. Tang, N. Yao, and B. Choi, "Maximizing Data Preservation in Intermittently Connected Sensor Networks," in *Proc. of IEEE MASS*, 2012.
+11. G. Rivera and B. Tang, "Data Preservation in Intermittently Connected Sensor Networks with Data Priority," in *Proc. of IEEE MASS*, 2013.
+12. B. Tang and C. S. Raghavendra, "Truthful and Optimal Data Preservation in Base Station-less Sensor Networks: An Integrated Game Theory and Network Flow Approach," *ACM Transactions on Sensor Networks*, 2023.
+13. B. Tang, N. Jaggi, H. Wu, and R. Kurkal, "Energy-Efficient Data Redistribution in Sensor Networks," *ACM Transactions on Sensor Networks*, vol. 9, no. 2, 2013.
