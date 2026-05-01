@@ -413,6 +413,58 @@ Each visual run opens graph windows per algorithm:
 
 ---
 
+## Sample Output
+
+### Visual Run
+```
+-- Feasibility Check --
+  Total DG packets:    52
+  Total storage need:  323
+  Total storage cap:   45
+  Usable storage cap:  45  (BOTTLENECK)
+  Total node energy:   250  (sufficient)
+  >> Bottleneck detected — running MWF.
+
+===== VISUAL RUN SUMMARY =====
+  ILP Optimal:                338.0
+  GOA priority:        293.0  (86.7% of optimal)
+  Density GOA priority: 338.0  (100.0% of optimal)
+  Hybrid GOA priority: 338.0  (100.0% of optimal)
+  DDR-GOA priority:    293.0  (86.7% of optimal)
+  DDR+-GOA priority:   293.0  (86.7% of optimal)
+  PSB-GOA priority:    338.0  (100.0% of optimal)
+```
+
+### Scaling Runs
+```
+==== Network Size: 10 nodes, 10 trials ====
+  Trial  1 [TR=59, DGs=3, STs=7]: GOA=273.0  Density=273.0  Approx=273.0
+    Hybrid=273.0  DDR=273.0  DDR+=273.0  PSB=273.0  Exact=273.0
+  Trial  3 [TR=64, DGs=6, STs=4]: GOA=340.0  Density=379.0  Approx=379.0
+    Hybrid=379.0  DDR=379.0  DDR+=379.0  PSB=379.0  Exact=379.0
+  Trial  4 [TR=58, DGs=5, STs=5]: GOA=538.0  Density=574.0  Approx=574.0
+    Hybrid=590.0  DDR=486.0  DDR+=574.0  PSB=590.0  Exact=590.0
+  ...
+-- Results over 4 active trials (1 skipped, 5 total) --
+  ILP Optimal avg:      440.00  (4/4 active trials)
+  GOA avg:              411.75  (93.6% of optimal)
+  Density GOA avg:      434.25  (98.7% of optimal)
+  Hybrid GOA avg:       440.00  (100.0% of optimal)
+  PSB-GOA avg:          440.00  (100.0% of optimal)
+```
+
+### ILP Verification
+```
+$ glpsol --lp mwf_s_ilp.lp -o solution.txt
+GLPK Integer Optimizer 5.0
+...
+INTEGER OPTIMAL SOLUTION FOUND
+Objective:  obj = 340 (MAXimum)
+# B&B reported 338, ILP found 340 — 0.6% gap from sequential routing limitation
+```
+
+---
+
 ## Recommended Test Inputs
 
 ### Small & clean (see everything working)
